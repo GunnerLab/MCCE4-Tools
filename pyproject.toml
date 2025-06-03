@@ -39,11 +39,16 @@ classifiers = [
 dynamic = ["dependencies"]
 
 [tool.unidep]
-channels = ["conda-forge", "schrodinger"]
+channels = [
+    "conda-forge",
+    # comment out this next line if you do not want pymol installed:
+    "schrodinger"
+]
 
 dependencies = [
     {conda = "matplotlib"},
     {conda ="mdanalysis"},
+    # comment out this next line if you do not want pymol installed:
     {conda = "pymol-bundle"},
     {conda = "tqdm"},
     "numpy",
