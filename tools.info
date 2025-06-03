@@ -1,16 +1,21 @@
 Tools in MCCE4-Tools - Last updated: 06/02/25:
+ * Tools without description: awaiting authors input.
 
-  - clear_mcce_folder :: Delete all MCCE outputs from a folder.
-                         Kept: run.prm, original pdb and prot.pdb, as well as any non-MCCE files.
+cif2pdb           ::
 
-  - getpdb         :: Download one or more (bioassembly) pdb files from the RSCB Protein Data Bank.
+clear_mcce_folder :: Delete all MCCE outputs from a folder.
+                     Kept: run.prm, original pdb and prot.pdb, as well as any non-MCCE files.
+
+getpdb            :: Download one or more (bioassembly) pdb files from the RSCB Protein Data Bank.
 
 
-  - ms_protonation :: Obtain Protonation Microstates Analysis with Weighted Correlation
-                      The requied input is a parameter file of which two examples can be found
-                      in MCCE4-Tools/notebooks: 'params.crgms' and 'minimal_no_bounds.crgms'.
+ms_protonation    :: Obtain Protonation Microstates Analysis with Weighted Correlation
+                     The requied input is a parameter file of which two examples can be found
+                     in MCCE4-Tools/notebooks: 'params.crgms' and 'minimal_no_bounds.crgms'.
 
-  - postrun        :: Flags problem residues: non-canonical charge, high chi^2 or no fit.
+pdbs2pse          ::
+
+postrun           :: Flags problem residues: non-canonical charge, high chi^2 or no fit.
 
 
 
