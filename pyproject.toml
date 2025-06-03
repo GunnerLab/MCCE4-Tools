@@ -1,0 +1,77 @@
+# pyproject.toml
+# unidep install-all -e  # to install cloned repo as editable
+#
+
+[build-system]
+requires = ["setuptools >= 64.0", "wheel", "unidep[toml]"]
+build-backend = "setuptools.build_meta"
+
+[project]
+version = "0.1.0"
+name = "mcce4_tools"
+
+description = "Tools for processing & analyzing MCCE4 simulation outputs."
+readme = "README.md"
+
+maintainers = [
+    {name = "Cat Chenal @ GunnerLab"},
+]
+
+license-files = ["LICENSE"]
+
+keywords = [
+    "biophysics",
+    "proteomics",
+    "cheminformatics",
+    "mcce4 output analysis",
+]
+
+requires-python = "==3.10.*"
+
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Biophysicists, Developers",
+    "License :: OSI Approved :: MIT License",
+    "Natural Language :: English",
+    "Programming Language :: Python :: 3.10",
+]
+
+dynamic = ["dependencies"]
+
+[tool.unidep]
+channels = ["conda-forge", "schrodinger"]
+
+dependencies = [
+    {conda = "matplotlib"},
+    {conda ="mdanalysis"},
+    {conda = "pymol-bundle"},
+    {conda = "tqdm"},
+    "numpy",
+    "pandas",
+    "parmed",
+    "requests",
+    "scipy",
+    "seaborn",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest",
+]
+
+[project.urls]
+Source = "https://github.com/GunnerLab/MCCE4-Tools"
+
+[tool.setuptools.packages]
+find = {}
+
+[project.scripts]
+#cmd = "pkg.module:function"
+
+cif2pdb = "mcce4_tools.pdb_conversions:to_cif_cli"
+clear_mcce_folder = "mcce4_tools.clear_mcce_outputs:cli"
+getpdb = "mcce4_tools.downloads:getpdb_cli"
+ms_protonation = "mcce4_tools.cms_analysis_wc.cli:crgmswc_cli"
+pdbs2pse = "mcce4_tools.pdb_conversions:to_pse_cli"
+postrun = "mcce4_tools.postrun:pr_cli"
+
