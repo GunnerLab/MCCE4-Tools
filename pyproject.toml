@@ -1,6 +1,4 @@
 # pyproject.toml
-# unidep install-all -e  # to install cloned repo as editable
-#
 
 [build-system]
 requires = ["setuptools >= 64.0", "wheel", "unidep[toml]"]
