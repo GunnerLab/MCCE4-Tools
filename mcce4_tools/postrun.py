@@ -296,7 +296,7 @@ def pr_cli(argv = None):
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""Report issues here:
-        https://github.com/GunnerLab/MCCE4/issues""",
+        https://github.com/GunnerLab/MCCE4-Tools/issues""",
     )
     p.add_argument(
         "-run_dir",

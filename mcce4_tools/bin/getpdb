@@ -1,0 +1,14 @@
+#!/usr/bin/env python
+
+"""
+Tool file: getpdb
+
+Codebase: mcce4_tools/downloads.py
+"""
+import sys
+
+from mcce4_tools.downloads import getpdb_cli
+
+
+if __name__ == "__main__":
+    sys.exit(getpdb_cli())

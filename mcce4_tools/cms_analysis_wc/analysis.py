@@ -4,7 +4,7 @@
 Module: analysis.py
 
   Protonation microstate analysis with weighted correlation.
-  Uses 'fast msout file loader' class MSout_np.
+  Uses  MSout_np as the msout file loader class.
 """
 
 from collections import defaultdict
@@ -13,7 +13,6 @@ from pathlib import Path
 import sys
 from typing import Dict, List, Union
 import warnings
-
 
 logger = logging.getLogger(__name__)
 try:
@@ -26,7 +25,7 @@ except ImportError as e:
     logger.critical("Oops! Forgot to activate an appropriate environment?\n", exc_info=e)
     sys.exit(1)
 
-from mcce4_tools.cms_analysis_wc import APP_NAME, MIN_OCC, IONIZABLES, ACIDIC_RES, BASIC_RES, POLAR_RES
+from mcce4_tools.cms_analysis_wc import IONIZABLES, ACIDIC_RES, BASIC_RES, POLAR_RES
 from mcce4_tools.cms_analysis_wc import parameters as prm
 from mcce4_tools.cms_analysis_wc.plots import energy_distribution, crgms_energy_histogram, corr_heatmap
 from mcce4_tools.io_utils import get_mcce_filepaths

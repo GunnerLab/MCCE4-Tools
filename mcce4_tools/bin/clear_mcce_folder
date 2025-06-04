@@ -1,0 +1,13 @@
+#!/usr/bin/env python
+
+"""
+Tool file: getpdb
+
+Codebase: mcce4_tools/downloads.py
+"""
+import sys
+
+from mcce4_tools.clear_mcce_outputs import cli
+
+if __name__ == "__main__":
+    sys.exit(cli())

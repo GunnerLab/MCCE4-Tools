@@ -1,7 +1,7 @@
 # pyproject.toml
 
 [build-system]
-requires = ["setuptools >= 64.0", "wheel", "unidep[toml]"]
+requires = ["setuptools >= 64.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -24,8 +24,6 @@ keywords = [
     "mcce4 output analysis",
 ]
 
-requires-python = "==3.10.*"
-
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Biophysicists, Developers",
@@ -34,28 +32,10 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
 ]
 
-dynamic = ["dependencies"]
+requires-python = "==3.10.*"
 
-[tool.unidep]
-channels = [
-    "conda-forge",
-    # comment out this next line if you do not want pymol installed:
-    "schrodinger"
-]
-
-dependencies = [
-    {conda = "matplotlib"},
-    {conda ="mdanalysis"},
-    # comment out this next line if you do not want pymol installed:
-    {conda = "pymol-bundle"},
-    {conda = "tqdm"},
-    "numpy",
-    "pandas",
-    "parmed",
-    "requests",
-    "scipy",
-    "seaborn",
-]
+[tool.setuptools.packages]
+find = {}
 
 [project.optional-dependencies]
 test = [
@@ -64,17 +44,3 @@ test = [
 
 [project.urls]
 Source = "https://github.com/GunnerLab/MCCE4-Tools"
-
-[tool.setuptools.packages]
-find = {}
-
-[project.scripts]
-#cmd = "pkg.module:function"
-
-cif2pdb = "mcce4_tools.pdb_conversions:to_cif_cli"
-clear_mcce_folder = "mcce4_tools.clear_mcce_outputs:cli"
-getpdb = "mcce4_tools.downloads:getpdb_cli"
-ms_protonation = "mcce4_tools.cms_analysis_wc.cli:crgmswc_cli"
-pdbs2pse = "mcce4_tools.pdb_conversions:to_pse_cli"
-postrun = "mcce4_tools.postrun:pr_cli"
-

@@ -42,7 +42,7 @@ from pathlib import Path
 import subprocess
 import sys
 import time
-from typing import Callable, Tuple, Union
+from typing import Callable, List, Tuple, Union
 
 import pandas as pd
 from pandas.api.types import is_object_dtype
@@ -97,21 +97,23 @@ def subprocess_run(
     return data
 
 
-mccepdbline_positions = [(0, 5),
-            (6, 10),
-            (11, 15),
-            (16, 16),
-            (17, 19),
-            (21, 29),
-            (30, 37),
-            (38, 45),
-            (46, 53),
-            (54, 61),
-            (62, 73),
-            (80, 89),
+def mccepdbline_positions() -> List[Tuple]:
+    """
+    Returns a list of character indices ranges for each items in an extended mcce
+    pdb line.
+
+    Example, mcce line with alt loc 'A':
+    ATOM     23  HB2ALYS A0001_002   0.724   6.255  13.419   0.000       0.000      01O001M000
+    HETATM
+    012345
+    """
+    return [
+            (0, 5),(6, 10),(11, 15),(16, 16),(17, 19),(21, 29),
+            (30, 37),(38, 45),(46, 53),(54, 61),(62, 73),(80, 89),
             ]
 
-def parse_mcce_line(pdb_coord_line: str) -> list:
+
+def parse_mcce_line(pdb_coord_line: str) -> List:
     """
     Parses a mcce pdb coordinates line into elements based on format positions.
 
@@ -121,15 +123,13 @@ def parse_mcce_line(pdb_coord_line: str) -> list:
         A list of extracted elements, i.e.:
         [rec, seq, atm, alt, res, conf, x, y, z, rad, crg, hist]
     """
-    # Example, mcce line with alt loc 'A':
-    # ATOM     23  HB2ALYS A0001_002   0.724   6.255  13.419   0.000       0.000      01O001M000
     return [
         pdb_coord_line[start : end + 1].strip()
-        for start, end in mccepdbline_positions
+        for start, end in mccepdbline_positions()
         ]
 
 
-def get_mcce_filepaths(mcce_dir: Path, ph: str = "7", eh: str = "0") -> tuple:
+def get_mcce_filepaths(mcce_dir: Path, ph: str = "7", eh: str = "0") -> Tuple:
     """Constructs and validates paths for these mcce output files:
     head3.lst, step2_out.pdb and the 'msout file' in the ms_out subfolder.
 
@@ -205,68 +205,6 @@ def get_unique_filename(filepath: str) -> str:
         new_path = parent_dir / f"{file_stem}_{n}{file_suffix}"
 
     return str(new_path)
-
-
-def config_logger(step_num: int, log_level: str = "INFO"):
-    """Function to configure a logger for MCCE step modules.
-    Configuration for logging to screen and files: run.log, err.log, and
-    'step<step_num>.debug' if log_level is 'DEBUG'.
-
-    Pre-requisite: Set at module level:
-        logger = logging.getLogger(__name__)
-        logger.setLevel(logging.DEBUG)
-
-    Args:
-      step_num (str):
-        Number of the MCCE step to configure for logging to file when log_level = 'DEBUG'.
-      log_level (str, "DEBUG")
-        If 'DEBUG' a file handler is created for the given step, e.g. 'step1.debug'.
-
-    Returns:
-      logging.Logger: The configured logger object.
-    """
-    choices = list(logging._nameToLevel.keys())
-    log_level = log_level.upper()
-    if log_level not in choices:
-        log_level = "INFO"
-        print(f"log_level must be one of {choices}; reset to INFO")
-
-    # Clear existing handlers
-    logger.handlers.clear()
-
-    # Console handler with INFO level and a more concise formatter
-    ch = logging.StreamHandler()
-    ch.setLevel(logging.INFO)
-    ch.setFormatter(logging.Formatter("%(levelname)s - %(funcName)s: %(message)s"))
-
-    # File handler for 'run.log'
-    run_fh = logging.FileHandler("run.log", encoding="utf-8")
-    run_fh.setLevel(logging.INFO)
-    run_fh.setFormatter(
-        logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-    )
-
-    # File handler for errors with a more detailed formatter
-    err_fh = logging.FileHandler("err.log", encoding="utf-8")
-    err_fh.setLevel(logging.ERROR)
-    err_format = "[%(asctime)s - %(levelname)s]: %(name)s, %(funcName)s: %(message)s"
-    err_fh.setFormatter(logging.Formatter(err_format))
-    # Add a filter to ensure only ERROR level messages are logged
-    # err_fh.addFilter(lambda record: record.levelno == logging.ERROR)
-
-    logger.addHandler(ch)
-    logger.addHandler(run_fh)
-    logger.addHandler(err_fh)
-
-    if log_level == "DEBUG":
-        # output everything to file
-        fname = f"step{step_num}.debug"
-        dbg = logging.FileHandler(fname, encoding="utf-8")
-        dbg.setLevel(logging.DEBUG)
-        dbg.setFormatter(logging.Formatter(err_format))
-        logger.addHandler(dbg)
-
-    return logger
 
 
 class MsgFmt:
@@ -621,18 +559,3 @@ def files_diff(
         return diff_df
 
     return
-
-
-def subprocess_run(
-    cmd: str, capture_output=True, check: bool = False, text=True, shell=True
-) -> Union[subprocess.CompletedProcess, subprocess.CalledProcessError]:
-    """Wraps subprocess.run. Return CompletedProcess or err obj."""
-
-    try:
-        data = subprocess.run(
-            cmd, capture_output=capture_output, check=check, text=text, shell=shell
-        )
-    except subprocess.CalledProcessError as e:
-        data = e
-
-    return data

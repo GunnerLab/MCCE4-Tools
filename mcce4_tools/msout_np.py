@@ -31,7 +31,7 @@ except ImportError as e:
     print(f"Oops! Forgot to activate an appropriate environment?\n{e}")
     sys.exit(1)
 
-from mcce4_tools.constants import IONIZABLE_RES as IONIZABLES
+from mcce4_tools.constants import IONIZABLE_RES as IONIZABLES, ROOMT
 from mcce4_tools.io_utils import reader_gen, show_elapsed_time
 
 
@@ -105,7 +105,7 @@ class MSout_np:
         self.validate_kwargs(mc_load, res_kinds, with_tautomers)
 
         # attributes populated by self.load_header:
-        self.T: float = 298.15
+        self.T: float = ROOMT
         self.pH: float = 7.0
         self.Eh: float = 0.0
         self.fixed_iconfs: list = []

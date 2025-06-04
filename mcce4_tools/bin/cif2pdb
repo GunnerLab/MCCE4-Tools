@@ -1,0 +1,14 @@
+#!/usr/bin/env python
+
+"""
+Tool file: cif2pdb
+
+Codebase: mcce4_tools/pdb_conversions.py
+"""
+import sys
+
+from mcce4_tools.pdb_conversions import to_cif_cli
+
+
+if __name__ == "__main__":
+    sys.exit(to_cif_cli())

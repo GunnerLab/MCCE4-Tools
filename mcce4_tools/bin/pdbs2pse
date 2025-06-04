@@ -1,0 +1,14 @@
+#!/usr/bin/env python
+
+"""
+Tool file: pdbs2pse
+
+Codebase: mcce4_tools/pymol_utils.py
+"""
+import sys
+
+from mcce4_tools.pymol_utils import to_pse_cli
+
+
+if __name__ == "__main__":
+    sys.exit(to_pse_cli())
