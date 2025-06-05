@@ -1,4 +1,4 @@
-Tools in MCCE4-Tools - Last updated: 06/02/25:
+Tools in MCCE4-Tools - Last updated: 06/05/25:
  * Tools without description: awaiting authors input.
 
 cif2pdb           ::
@@ -23,7 +23,7 @@ Tools help:  For information and usage on each tool, run:
 
     <tool name> -h OR <bash script name> -h
 
-Tools documentation (WIP):  
-    https://github.com/GunnerLab/MCCE4/blob/main/doc/UserManual.md
+Tools documentation (WIP, needs updating):  
+    https://github.com/GunnerLab/MCCE4-Alpha/blob/main/doc/UserManual.md
 
 Problems? Bugs? Report new issues:  https://github.com/GunnerLab/MCCE4-Tools/issues

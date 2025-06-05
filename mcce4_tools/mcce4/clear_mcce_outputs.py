@@ -1,7 +1,5 @@
 #!/usr/bin/env python
-
 """
-
 Module: clear_mcce_outputs.py
 
 Purpose:
@@ -11,7 +9,6 @@ original pdb and prot.pdb, as well as any non-MCCE files.
 Usage: Run the tool in the folder of interest
 
 """
-
 from pathlib import Path
 import shutil
 import sys

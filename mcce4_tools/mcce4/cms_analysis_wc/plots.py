@@ -1,18 +1,15 @@
 #!/usr/bin/env python
-
 """
 Module: plots.py
 
   Plots for Protonation microstate analysis with weighted correlation.
 """
-
 import logging
 from pathlib import Path
 import sys
 from typing import Tuple
 
 logger = logging.getLogger(__name__)
-
 try:
     import matplotlib as mpl
     from matplotlib.colors import ListedColormap, BoundaryNorm

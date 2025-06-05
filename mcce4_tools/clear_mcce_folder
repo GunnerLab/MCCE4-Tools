@@ -3,11 +3,11 @@
 """
 Tool file: clear_mcce_folder
 
-Codebase: mcce4_tools/clear_mcce_outputs.py
+Codebase: /mcce4/clear_mcce_outputs.py
 """
 import sys
 
-from mcce4_tools.clear_mcce_outputs import cli
+from mcce4.clear_mcce_outputs import cli
 
 if __name__ == "__main__":
     sys.exit(cli())

@@ -1,12 +1,10 @@
 #!/usr/bin/env python
-
 """
 Module: parameters.py
 
 Functions to load the command line input parameter file, e.g. 'params.crgms'.
 
 """
-
 from collections import defaultdict
 from copy import deepcopy
 import logging
@@ -24,7 +22,7 @@ except ImportError as e:
     logger.critical("Oops! Forgot to activate an appropriate environment?\n", exc_info=e)
     sys.exit(1)
 
-from mcce4_tools.cms_analysis_wc import IONIZABLES, MIN_OCC, N_top 
+from mcce4.cms_analysis_wc import IONIZABLES, MIN_OCC, N_top 
 
 
 def params_main(ph: str="7", eh: str="0") -> dict:

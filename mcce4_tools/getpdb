@@ -3,11 +3,11 @@
 """
 Tool file: getpdb
 
-Codebase: mcce4_tools/downloads.py
+Codebase: /mcce4/downloads.py
 """
 import sys
 
-from mcce4_tools.downloads import getpdb_cli
+from mcce4.downloads import getpdb_cli
 
 
 if __name__ == "__main__":

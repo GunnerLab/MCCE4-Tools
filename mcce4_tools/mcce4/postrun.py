@@ -1,7 +1,6 @@
 #!/usr/bin/env python
-
 """
-postrun
+Module: postrun.py
 
 Provides basic diagnostics on sum_crg.out and pK.out data:
    - Non-canonically charged residues;
@@ -28,8 +27,8 @@ from typing import Tuple
 
 import pandas as pd
 
-from mcce4_tools.constants import CANONICAL
-import mcce4_tools.io_utils as mciou
+from mcce4.constants import CANONICAL
+import mcce4.io_utils as mciou
 
 
 logger = logging.getLogger(__name__)

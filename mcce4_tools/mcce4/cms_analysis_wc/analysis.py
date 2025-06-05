@@ -1,12 +1,10 @@
 #!/usr/bin/env python
-
 """
 Module: analysis.py
 
   Protonation microstate analysis with weighted correlation.
   Uses  MSout_np as the msout file loader class.
 """
-
 from collections import defaultdict
 import logging
 from pathlib import Path
@@ -25,11 +23,11 @@ except ImportError as e:
     logger.critical("Oops! Forgot to activate an appropriate environment?\n", exc_info=e)
     sys.exit(1)
 
-from mcce4_tools.cms_analysis_wc import IONIZABLES, ACIDIC_RES, BASIC_RES, POLAR_RES
-from mcce4_tools.cms_analysis_wc import parameters as prm
-from mcce4_tools.cms_analysis_wc.plots import energy_distribution, crgms_energy_histogram, corr_heatmap
-from mcce4_tools.io_utils import get_mcce_filepaths
-from mcce4_tools.msout_np import MSout_np
+from mcce4.cms_analysis_wc import IONIZABLES, ACIDIC_RES, BASIC_RES, POLAR_RES
+from mcce4.cms_analysis_wc import parameters as prm
+from mcce4.cms_analysis_wc.plots import energy_distribution, crgms_energy_histogram, corr_heatmap
+from mcce4.io_utils import get_mcce_filepaths
+from mcce4.msout_np import MSout_np
 
 
 CORR_METHODS = ["pearson", "spearman"]

@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-
 """
 Module: io_utils.py
 
@@ -36,7 +35,6 @@ Provides these helper functions:
 
  * class MsgFmt: Callable class to preclude eager execution of f-strings in logging.
 """
-
 import logging
 from pathlib import Path
 import subprocess

@@ -1,21 +1,19 @@
 #!/usr/bin/env python
-
 """
 Module: cli.py
 
   Command line interfac for Protonation microstate analysis with weighted correlation.
 
 """
-
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
 import logging
 from pathlib import Path
 from shutil import copyfile
 import sys
 
-from mcce4_tools.cms_analysis_wc import APP_NAME, IONIZABLES
-from mcce4_tools.cms_analysis_wc import analysis as msa
-from mcce4_tools.cms_analysis_wc import parameters as prm
+from mcce4.cms_analysis_wc import APP_NAME, IONIZABLES
+from mcce4.cms_analysis_wc import analysis as msa
+from mcce4.cms_analysis_wc import parameters as prm
 
 
 logger = logging.getLogger(__name__)

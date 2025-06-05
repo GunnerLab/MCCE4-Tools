@@ -2,7 +2,7 @@
 
 import logging
 
-from mcce4_tools.constants import IONIZABLE_RES as IONIZABLES, ACIDIC_RES, BASIC_RES, POLAR_RES
+from mcce4.constants import IONIZABLE_RES as IONIZABLES, ACIDIC_RES, BASIC_RES, POLAR_RES
 
 
 APP_NAME = "ms_protonation"

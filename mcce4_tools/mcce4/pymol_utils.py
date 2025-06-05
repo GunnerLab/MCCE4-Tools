@@ -1,10 +1,8 @@
 #!/usr/bin/env python
-
 """
 Module: pymol_utils.py
 
 """
-
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
 from pathlib import Path
 import sys

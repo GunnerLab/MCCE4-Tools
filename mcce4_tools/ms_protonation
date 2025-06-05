@@ -3,11 +3,11 @@
 """
 Tool file: ms_protonation
 
-Codebase: mcce4_tools/cms_analysis_wc/
+Codebase: /mcce4/cms_analysis_wc/
 """
 import sys
 
-from mcce4_tools.cms_analysis_wc.cli import crgmswc_cli
+from mcce4.cms_analysis_wc.cli import crgmswc_cli
 
 if __name__ == "__main__":
     sys.exit(crgmswc_cli())

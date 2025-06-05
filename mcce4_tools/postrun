@@ -3,11 +3,11 @@
 """
 Tool file: postrun
 
-Codebase: mcce4_tools/postrun.py
+Codebase: /mcce4/postrun.py
 """
 import sys
 
-from mcce4_tools.postrun import pr_cli
+from mcce4.postrun import pr_cli
 
 
 if __name__ == "__main__":

@@ -1,10 +1,8 @@
 #!/usr/bin/env python
-
 """
 Module: pdb_converions.py
 
 """
-
 from argparse import ArgumentParser, Namespace, RawDescriptionHelpFormatter
 from pathlib import Path
 import re

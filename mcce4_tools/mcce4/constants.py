@@ -1,11 +1,9 @@
 #!/usr/bin/env python
-
 """
 Module: constants.py
 
 Contains values, conversion factors, lists or dicts for use in MCCE4.
 """
-
 NEUTRAL_RES = ["ALA", "ASN", "GLN", "GLY", "ILE", "LEU","MET", "PHE", "PRO", "SER", "THR", "TRP", "VAL"]
 IONIZABLE_RES = ["ASP", "GLU", "ARG", "HIS", "LYS", "CYS", "TYR", "NTR", "CTR"]
 ALL_RES = IONIZABLE_RES + NEUTRAL_RES

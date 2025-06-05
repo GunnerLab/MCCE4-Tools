@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-
 """
 Module: msout_np.py
 
@@ -17,7 +16,6 @@ Note:
 - 'msout file' refers to a .txt file that starts with 'pH<ph>' in the ms_out
   subfolder of an mcce run.
 """
-
 from collections import defaultdict
 from itertools import islice
 import sys
@@ -31,8 +29,8 @@ except ImportError as e:
     print(f"Oops! Forgot to activate an appropriate environment?\n{e}")
     sys.exit(1)
 
-from mcce4_tools.constants import IONIZABLE_RES as IONIZABLES, ROOMT
-from mcce4_tools.io_utils import reader_gen, show_elapsed_time
+from mcce4.constants import IONIZABLE_RES as IONIZABLES, ROOMT
+from mcce4.io_utils import reader_gen, show_elapsed_time
 
 
 MIN_OCC = 0.0  # occ threshold

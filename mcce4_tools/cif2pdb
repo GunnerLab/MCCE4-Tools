@@ -3,11 +3,11 @@
 """
 Tool file: cif2pdb
 
-Codebase: mcce4_tools/pdb_conversions.py
+Codebase: /mcce4/pdb_conversions.py
 """
 import sys
 
-from mcce4_tools.pdb_conversions import to_cif_cli
+from mcce4.pdb_conversions import to_cif_cli
 
 
 if __name__ == "__main__":

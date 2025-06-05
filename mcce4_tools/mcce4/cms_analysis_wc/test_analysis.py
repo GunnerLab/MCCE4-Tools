@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-
 """
 Module  cms_analysis_wc./tests/test_analysis.py
 """
@@ -10,11 +9,11 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from mcce4_tools.cms_analysis_wc import analysis as msa
+from mcce4.cms_analysis_wc import analysis as msa
 # Needed for defaults in pipeline tests:
-from mcce4_tools.cms_analysis_wc import parameters as prm
+from mcce4.cms_analysis_wc import parameters as prm
 # For rename/reorder tests:
-from mcce4_tools.cms_analysis_wc import IONIZABLES, ACIDIC_RES, BASIC_RES, POLAR_RES
+from mcce4.cms_analysis_wc import IONIZABLES, ACIDIC_RES, BASIC_RES, POLAR_RES
 
 # Fixtures for WeightedCorr
 @pytest.fixture

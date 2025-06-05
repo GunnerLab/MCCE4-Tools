@@ -1,11 +1,9 @@
 #!/usr/bin/env python
-
 """
 Module: downloads.py
 
 Provides functions to download files with the requests library.
 """
-
 import argparse
 import logging
 from pathlib import Path
@@ -14,7 +12,7 @@ import shutil
 import subprocess
 from typing import Tuple, Union
 
-from mcce4_tools.io_utils import subprocess_run
+from mcce4.io_utils import subprocess_run
 
 
 logging.basicConfig(format="[ %(levelname)s ] %(name)s - %(funcName)s:\n  %(message)s")
