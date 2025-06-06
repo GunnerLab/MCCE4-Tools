@@ -1,24 +1,77 @@
 Tools in MCCE4-Tools - Last updated: 06/05/25:
  * Tools without description: awaiting authors input.
 
-cif2pdb           ::
+cif2pdb           :: convert cif to pdb
 
 clear_mcce_folder :: Delete all MCCE outputs from a folder.
                      Kept: run.prm, original pdb and prot.pdb, as well as any non-MCCE files.
 
+detect_hbonds     :: Detect h-bonds in a mcce pdb file.
+
+filesdiff         :: Obtain the column difference between two mcce files, or diff all files in
+                      two mcce output folders. The difference file is saved with the 'diff_' prefix.
+                      Applicable to these files:
+                      all_pK.out, all_sum_crg.out, entropy.out, fort.38, head3.lst, pK.out,
+                      residues_stats.txt, sum_crg.out, vdw0.lst.
+
 getpdb            :: Download one or more (bioassembly) pdb files from the RSCB Protein Data Bank.
 
+md_clustering     :: Given a topology file and one or more trajectories, save the pdbs of the
+                     clusters elements in the topology file's parent directory.
+
+md_extract_frames :: Extract a trajectory's frames with the given indices into pdb files with options
+                     to select segment and cofactors, and print the structure segments parsed by
+                     MDAnalysis.
+
+md_fix_psf_mdanalysis :: Test the instantiation of a MDAnalysis.Universe given a PSF topology and
+                         its associated DCD trajectory file.
+                         Upon failure, a new psf file is created using `parmed`, which is then used
+                         as the topology file in a new MDAnalysis.Universe instantiation attempt.
+                         - If that attempt is successfull, the user is notified that the new psf file
+                           is to be used;
+                         - If not: the new psf file is deleted and the user is notified that the problem
+                           could not be resolved.
+
+ms_hbnets1_mspdbs  :: Generate a random sample of MCCE microstates in pdb format.
+                      Minimal usage: ms_hbnets1_mspdbs
+
+ms_hbnets2_hah     :: Compute all possible hbonds over a collection directory of step2_out formatted pdbs
+                      using the MCCE_bin.detect_hbonds.detect_hbonds function. 
+                      Each pdb will have its own associated txt file containing their hbond donors,
+                      acceptors, distances and angles. 
+
+ms_hbnets3_nets    :: list_hbond_networks 
+
+ms_hbnets4_stats   :: Analyze network similarites/statistics across a collection directory of microstate
+                      associated network files.
+
+ms_hbond_percentages ::
+
+ms_plot_energies.py  ::
 
 ms_protonation    :: Obtain Protonation Microstates Analysis with Weighted Correlation
                      The requied input is a parameter file of which two examples can be found
                      in MCCE4-Tools/notebooks: 'params.crgms' and 'minimal_no_bounds.crgms'.
 
-pdbs2pse          ::
+ms_sample2pdbs    :: Generate a random sample of MCCE microstates in mcce pdb format.
+                     Minimal usage: ms_sample_to_pdbs
+
+ms_top2pdbs       :: Create pdb & pqr files for the topN tautomeric protonation microstates,
+                     along with a summary file & a listing of the N charge vectors.
+                     Defaults:
+                     pH=7.0; n_top=5; min_occ=0.0; residue_kinds=ionizable res; --overwrite=False.
+                     Examples:
+                      > ms_top2pdbs         # use all defaults
+                      > ms_top2pdbs -eh 30  # Eh titration at ph7
+                     Passing residues kinds: comma-separated; order & case insensitive:
+                      > ms_top2pdbs -residue_kinds _CL,his,GLU
+
+pdbs2pse          :: Bundle a list of pdbs into a Pymol seesion.
 
 postrun           :: Flags problem residues: non-canonical charge, high chi^2 or no fit.
 
 
-
+----------------------------------------------------------------------------------
 Tools help:  For information and usage on each tool, run:
 
     <tool name> -h OR <bash script name> -h

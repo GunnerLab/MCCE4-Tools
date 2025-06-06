@@ -1,0 +1,14 @@
+#!/usr/bin/env python
+"""
+Tool file:  md_clustering
+
+Codebase: mcce4/md_clustering.py
+"""
+import sys
+
+from mcce4.md_clustering import cli
+
+
+if __name__ == "__main__":
+    sys.exit(cli())
+

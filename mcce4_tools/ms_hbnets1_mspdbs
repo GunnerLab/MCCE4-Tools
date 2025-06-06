@@ -1,0 +1,14 @@
+#!/usr/bin/env python
+
+"""
+Tool file: ms_hbnets1_mspdbs
+
+Codebase: /mcce4/ms_sample_to_pdbs.py
+"""
+import sys
+
+from mcce4.ms_sample_to_pdbs import pipeline_cli
+
+
+if __name__ == "__main__":
+    sys.exit(pipeline_cli())

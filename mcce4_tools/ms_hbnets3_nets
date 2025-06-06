@@ -1,0 +1,14 @@
+#!/usr/bin/env python
+
+"""
+Tool file:  ms_hbnets3_nets
+
+Codebase: mcce4/list_hbond_networks.py
+"""
+import sys
+
+from mcce4.list_hbond_networks import cli
+
+
+if __name__ == "__main__":
+    sys.exit(cli())

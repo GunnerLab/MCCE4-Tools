@@ -99,11 +99,6 @@ def mccepdbline_positions() -> List[Tuple]:
     """
     Returns a list of character indices ranges for each items in an extended mcce
     pdb line.
-
-    Example, mcce line with alt loc 'A':
-    ATOM     23  HB2ALYS A0001_002   0.724   6.255  13.419   0.000       0.000      01O001M000
-    HETATM
-    012345
     """
     return [
             (0, 5),(6, 10),(11, 15),(16, 16),(17, 19),(21, 29),

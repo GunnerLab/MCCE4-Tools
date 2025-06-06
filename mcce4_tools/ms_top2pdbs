@@ -1,0 +1,24 @@
+#!/usr/bin/env python
+
+"""
+Tool file: ms_top2pdbs
+
+Purpose:
+Create pdb & pqr files for the topN tautomeric protonation microstates,
+along with a summary file & a listing of the N charge vectors.
+
+Defaults: mcce_dir=.; ph=7; eh=0; n_top=5; --overwrite=False.
+
+Examples:
+  Using all defaults:
+    > ms_top2pdbs
+  Passing residues kinds: comma-separated; order & case insensitive:
+    > ms_top2pdbs -residue_kinds _CL,his,GLU
+"""
+
+import sys
+from mcce4.topn_cms_to_pdbs import cli
+
+
+if __name__ == "__main__":
+    sys.exit(cli(tool_prompt=True))

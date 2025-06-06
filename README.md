@@ -1,6 +1,10 @@
 # MCCE4-Tools (Alpha)
   * Tools for processing MCCE4 simulation outputs
-  * A concise description is provided in `MCCE4-Tools/mcce4_tools/tools.info`.
+  * A concise description is provided in `MCCE4-Tools/mcce4_tools/tools.info`:
+  ```
+   cd MCCE4-Tools
+   cat mcce4_tools/tools.info
+  ```
 
 ## Installation
 
@@ -28,6 +32,7 @@ This repo is not yet published, so the "installation" is a process with these st
    ```
     matplotlib
     mdanalysis
+    networkx
     pymol-bundle
     numpy
     pandas
@@ -41,7 +46,7 @@ This repo is not yet published, so the "installation" is a process with these st
  6. Test a tool
    * Activate your environment
    * Type `getpdb` and press Enter: the cli help should display
-  
+
  7. For developing:
    * Activate your environment
    * Go into the clone directory (`cd your/path/to/cloned/MCCE4-Tools`)

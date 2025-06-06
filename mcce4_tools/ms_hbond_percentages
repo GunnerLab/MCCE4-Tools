@@ -1,0 +1,14 @@
+#!/usr/bin/env python
+
+"""
+Tool file: ms_hbond_percentages
+
+Codebase: /mcce4/ms_hbond_percentages.py
+"""
+import sys
+
+from mcce4.ms_hbond_percentages import cli
+
+
+if __name__ == "__main__":
+    sys.exit(cli())

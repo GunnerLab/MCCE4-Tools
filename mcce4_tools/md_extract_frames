@@ -1,0 +1,14 @@
+#!/usr/bin/env python
+"""
+Tool file:  md_extract_frames
+
+Codebase: mcce4/md_extract_frames.py
+"""
+import sys
+
+from mcce4.md_extract_frames import cli
+
+
+if __name__ == "__main__":
+    sys.exit(cli())
+
