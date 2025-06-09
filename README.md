@@ -1,10 +1,6 @@
 # MCCE4-Tools (Alpha)
-  * Tools for processing MCCE4 simulation outputs
-  * A concise description is provided in `MCCE4-Tools/mcce4_tools/tools.info`:
-  ```
-   cd MCCE4-Tools
-   cat mcce4_tools/tools.info
-  ```
+  * Tools for processing MCCE4 simulation outputs.
+  * A concise description is provided in the file `tools.info` in `MCCE4-Tools/mcce4_tools`. If you are reading this document online, you can view this file [here](https://raw.githubusercontent.com/GunnerLab/MCCE4-Tools/refs/heads/main/mcce4_tools/tools.info).
 
 ## Installation
 
@@ -73,13 +69,11 @@ To do so run these commands:
    pip install -e .
   ```
 
-## Command Line tools available (as of 06-03-25):
-  * `cif2pdb`
-  * `clear_mcce_folder`
-  * `getpdb`
-  * `ms_protonation`
-  * `pdbs2pse`
-  * `postrun`
+## Command line tools descriptions:
+  * A concise description is viewable from your clone's `tools.info` file:
+  ``` 
+   cat MCCE4-Tools/mcce4_tools/tools.info
+  ```
 
 ## The `notebooks` folder
 This folder contain examples of usage of the codebase instead of, or in addition to, the command-line tools.  
