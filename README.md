@@ -12,10 +12,10 @@ This repo is not yet published, so the "installation" is a process with these st
    git clone https://github.com/GunnerLab/MCCE4-Tools.git
   ```
 
- 3. Add the clone's path to your `.bashrc` file and save it, then source/dot your `.bashrc` file:
+ 3. Add the clone's path to your `.bashrc` (`.zshrc`) file and save it, then "dot" or source the file:
  ```
   # add MCCE4-Tools clone to the system path:
-  export PATH="/path/to/MCCE4-Tools/mcce4_tools:$PATH"
+  export PATH="/[REPLACE_WITH_YOUR_PATH]/MCCE4-Tools/mcce4_tools:$PATH"
  ```
 
  4. If all went well, all the command line tools are discoverable (not runable yet). You can verify their location by running the `which` command, e.g.:
@@ -23,29 +23,24 @@ This repo is not yet published, so the "installation" is a process with these st
   which getpdb
  ```
 
- 5. To _run_ the tools, activate an appropriate environment associated with __python 3.10__.
-   * Make sure your environment contains these __dependencies__:
-   ```
-    matplotlib
-    mdanalysis
-    networkx
-    pymol-bundle
-    numpy
-    pandas
-    parmed
-    requests
-    scipy
-    seaborn
-    'setuptools>=64'
-   ```
+ 5. To _run_ the tools, activate an appropriate environment associated with __python 3.10__ (and that includes setuptools). Alternatively, you can create one with the provided `MCCE4-Tools/mct4.yml` file:
+   *  Choose either Command 1 or 2 to run to create the environment:
+      1. Command 1: To use the default environment name of 'mct4':
+      ```
+       $conda env create -f mct4.yml
+      ```
+      2. Command 2: If you want 'new_env' to be the environment name instead of 'mct4':
+      ```
+       $conda env create -f mct4.yml -n new_env
+      ```
 
  6. Test a tool
-   * Activate your environment
+   * Activate your environment, e.g. `conda activate mct4`
    * Type `getpdb` and press Enter: the cli help should display
 
  7. For developing:
-   * Activate your environment
-   * Go into the clone directory (`cd your/path/to/cloned/MCCE4-Tools`)
+   * Activate your environment, e.g. `conda activate mct4`
+   * Go into the clone directory (`cd MCCE4-Tools`)
    * Install the clone codebase as an editable package in your activated environment:
    ```
     pip install -e .

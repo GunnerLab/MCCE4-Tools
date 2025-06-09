@@ -1,0 +1,27 @@
+# Choose command to run to create the environment:
+# 1. To use the default environment name of 'mct4':
+#   $conda env create -f mct4.yml
+# 2. If you want 'new_env' to be the environment name instead of 'mct4':
+#   $conda env create -f mct4.yml -n new_env
+# 
+name: mct4
+channels:
+  - conda-forge
+  - schrodinger
+
+dependencies:
+  - python=3.10
+  - pip
+
+  - mdanalysis
+  - networkx
+  - parmed
+  - pymol-bundle
+  - scipy
+  - setuptools>=64
+  - pip:
+    - matplotlib
+    - numpy
+    - pandas
+    - requests
+    - seaborn
