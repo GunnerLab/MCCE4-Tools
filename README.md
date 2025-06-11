@@ -4,7 +4,6 @@
 
 ## Installation
 
-### Installation Preview:
 This repo is not yet published, so the "installation" is a process with these steps:
   1. Navigate to a directory of your choice
   2. Clone this repo, MCCE4-Tools:
@@ -15,21 +14,21 @@ This repo is not yet published, so the "installation" is a process with these st
  3. Add the clone's path to your `.bashrc` (`.zshrc`) file and save it, then "dot" or source the file:
  ```
   # add MCCE4-Tools clone to the system path:
-  export PATH="/[REPLACE_WITH_YOUR_PATH]/MCCE4-Tools/mcce4_tools:$PATH"
+  export PATH="/[REPLACE_WITH_YOUR_PATH_FROM_STEP_1]/MCCE4-Tools/mcce4_tools:$PATH"
  ```
 
- 4. If all went well, all the command line tools are discoverable (not runable yet). You can verify their location by running the `which` command, e.g.:
+ 4. If all went well, all the command line tools are discoverable (but _not runable yet_). You can verify their location by running the `which` command, e.g.:
  ```
   which getpdb
  ```
 
  5. To _run_ the tools, activate an appropriate environment associated with __python 3.10__ (and that includes setuptools). Alternatively, you can create one with the provided `MCCE4-Tools/mct4.yml` file:
-   *  Choose either Command 1 or 2 to run to create the environment:
+   *  Choose either Command 1 or 2 below to create the environment:
       1. Command 1: To use the default environment name of 'mct4':
       ```
        $conda env create -f mct4.yml
       ```
-      2. Command 2: If you want 'new_env' to be the environment name instead of 'mct4':
+      2. Command 2: If you want something else, e.g. 'new_env' to be the environment name instead of 'mct4':
       ```
        $conda env create -f mct4.yml -n new_env
       ```
@@ -52,14 +51,14 @@ This repo is not yet published, so the "installation" is a process with these st
 As this is repo is bound to be frequently updated, your installation must be kept up to date.  
 To do so run these commands:
 
-  1. Go into the clone directory (`cd your/path/to/cloned/MCCE4-Tools`)
+  1. Go into the clone directory (`cd [REPLACE_WITH/your/path/to/cloned]/MCCE4-Tools`)
   2. Refresh the code with a `git pull`:
   ```
    git pull;
   ```
-  3. Activate the appropriate environment before using any tools, e.g. mc310:
+  3. Activate the appropriate environment before using any tools, e.g. mct4:
   ```
-   conda activate mc310;
+   conda activate mct4;
   ```
   4. If you have setup your clone for development, refresh the environment installation:
   ```
