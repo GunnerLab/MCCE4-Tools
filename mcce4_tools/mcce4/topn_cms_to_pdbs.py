@@ -921,8 +921,8 @@ def cli(argv=None, tool_prompt=False):
     given by the input pdb path and output their step2_out, pqr and pdb files, along
     a summary file, and a .tsv file of cms state vectors & totals.
     """
-    cli_parser = cli_parser()
-    args = cli_parser.parse_args(argv)
+    clip = cli_parser()
+    args = clip.parse_args(argv)
     pipeline = TopNCmsPipeline(args)
     pipeline.run(tool_prompt=tool_prompt)
 

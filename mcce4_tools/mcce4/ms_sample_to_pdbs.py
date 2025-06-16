@@ -262,13 +262,8 @@ def cli_parser():
 
 
 def cli(argv=None):
-    cli_parser = cli_parser()
-
-    args = cli_parser.parse_args(argv)
+    clip = cli_parser()
+    args = clip.parse_args(argv)
     args.func(args)
 
     return
-
-
-if __name__ == "__main__":
-    cli(sys.argv[1:])
