@@ -7,8 +7,8 @@ Codebase: /mcce4/ms_sample_to_pdbs.py
 """
 import sys
 
-from mcce4.ms_sample_to_pdbs import pipeline_cli
+from mcce4.ms_sample_to_pdbs import cli
 
 
 if __name__ == "__main__":
-    sys.exit(pipeline_cli())
+    sys.exit(cli())
