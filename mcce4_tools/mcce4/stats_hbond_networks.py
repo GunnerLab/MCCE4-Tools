@@ -266,8 +266,10 @@ def main(input_dir, topnets, node_min, A, output_file):
                 print_and_write(out_file, f"      {nodes[i]} -> {nodes[i + 1]} : {percent:6.2%}")
 
             print_and_write(out_file, f"\nNetwork {idx} is found in files of directory: {input_dir}")
-            print_and_write(out_file, f"Directory files: {", ".join(sorted(network_file_map[network]))}")
-            print_and_write(out_file, f"{"-" * 200}\n")
+            print_and_write(out_file, f"Directory files: {', '.join(sorted(network_file_map[network]))}")
+            #print_and_write(out_file, f"Directory files: {", ".join(sorted(network_file_map[network]))}")
+            print_and_write(out_file, f"{'-' * 200}\n")
+            #print_and_write(out_file, f"{"-" * 200}\n")
 
     print(f"Results saved to: {output_file}\n")
 
