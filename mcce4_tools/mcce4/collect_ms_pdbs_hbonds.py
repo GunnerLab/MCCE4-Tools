@@ -22,7 +22,7 @@ from pathlib import Path
 import shutil
 import sys
 
-import detect_hbonds
+from mcce4 import detect_hbonds
 
 
 def collect_hbs(args: argparse.Namespace):
