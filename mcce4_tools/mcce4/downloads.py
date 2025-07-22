@@ -12,7 +12,7 @@ import shutil
 import subprocess
 from typing import Tuple, Union
 
-from mcce4.io_utils import subprocess_run
+from mcce4.io_utils import subprocess_run, CalledProcessError, CompletedProcess
 
 
 logging.basicConfig(format="[ %(levelname)s ] %(name)s - %(funcName)s:\n  %(message)s")
@@ -96,11 +96,11 @@ def get_rcsb_pdb(pdbid: str, keep_bioassembly: bool = False) -> Union[Path, Tupl
             if not o.stdout:  # no MODEL line, add it
                 cmd = f"sed -i '$a\\{MDL}' {pdb}"
                 o = subprocess_run(cmd, capture_output = True, check = True)
-                if isinstance(o, subprocess.CompletedProcess):
+                if isinstance(o, CompletedProcess):
                     missing_model_line_added = True
                 else:
                     logger.info(f"Failed adding missing MODEL line in {pdb}.")
-        except subprocess.CalledProcessError as e:
+        except CalledProcessError as e:
             logger.error(f"Failed check on MODEL line; exit code {e.returncode}: {e.stderr}")
 
         # append model coordinate lines to the header file:
@@ -109,7 +109,7 @@ def get_rcsb_pdb(pdbid: str, keep_bioassembly: bool = False) -> Union[Path, Tupl
             # need "ENDMDL" as well:
             cmd = cmd + "; echo 'ENDMDL' >> " + pdb
         o = subprocess_run(cmd, capture_output = True, check = True)
-        if isinstance(o, subprocess.CalledProcessError):
+        if isinstance(o, CalledProcessError):
             logger.warning(f"Failed adding full header for {pdb}: bioassembly with partial header used.")
             shutil.move(pdb1, pdb)
 

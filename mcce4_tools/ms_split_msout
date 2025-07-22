@@ -1,0 +1,13 @@
+#!/usr/bin/env python
+"""
+Tool file: ms_split_msout
+
+Codebase: /mcce4/ms_split_msout.py
+"""
+import sys
+
+from mcce4.ms_split_msout import cli
+
+
+if __name__ == "__main__":
+    sys.exit(cli())
