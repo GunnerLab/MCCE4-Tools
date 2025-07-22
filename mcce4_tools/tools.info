@@ -66,6 +66,20 @@ ms_top2pdbs       :: Create pdb & pqr files for the topN tautomeric protonation 
                      Passing residues kinds: comma-separated; order & case insensitive:
                       > ms_top2pdbs -residue_kinds _CL,his,GLU
 
+ms_split_msout    :: Obtain a reduced msout file, preserving the original as all_<msout_file>.
+                     Minimal usage:
+                                   ms_split_msout                       # ph=7, eh=0, mc_range=2 (2nd MC run)
+                                   ms_split_msout --reset_master -ph 5  # ph needed if not 7
+                     options:
+                      -h, --help            show this help message and exit
+                      -mcce_dir MCCE_DIR    The mcce run or ms_out folder; required. (default: ./)
+                      -ph PH                pH point (e.g.: 7, 7.5) of the msout file; Default: 7.
+                      -eh EH                pH point (e.g.: 200, 200.5) of the msout file; Default: 0.
+                      -mc_range [MC_RANGE ...]
+                                            Which MC run data to extract. One integer for a single run, e.g. 1 for the 1st MC run, or two for an inclusive range, e.g.
+                                            3 6. Default: 2.
+                      --reset_master        Reset all_<msout_file>, a 'preserved master file' to the original msout_file.
+
 pdbs2pse          :: Bundle a list of pdbs into a Pymol seesion.
 
 postrun           :: Flags problem residues: non-canonical charge, high chi^2 or no fit.

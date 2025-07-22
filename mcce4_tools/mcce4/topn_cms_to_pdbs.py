@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-
 """
 Module: topn_cms_to_pdbs.py
 
@@ -49,8 +48,7 @@ OUTPUT FILES:
   - s2_topmsN.pdb output each microstate in MCCE step2_out.pdb format
   - s2_topmsN.pqr output in pqr format (position, charge, radius)
 """
-
-from argparse import ArgumentParser, Namespace, RawDescriptionHelpFormatter
+from argparse import ArgumentParser, Namespace
 from collections import defaultdict
 from copy import deepcopy
 from datetime import datetime
@@ -74,11 +72,10 @@ from mcce4.msout_np import MSout_np
 from mcce4.constants import CANONICAL, IONIZABLE_RES, ALL_RES
 
 
-logging.basicConfig(level=logging.INFO, format="%(levelname)s - %(name)s: %(message)s")
-
-
-# entry pint name in MCCE_bin:
+# entry point name in MCCE_bin:
 APP_NAME = "ms_top2pdbs"
+logging.basicConfig(level=logging.INFO,
+                    format="%(asctime)s %(levelname)s - %(name)s: %(message)s")
 logger = logging.getLogger(APP_NAME)
 
 
@@ -103,8 +100,8 @@ def get_input_pdb_name(mcce_dir: Path) -> str:
 
 
 class Mcce2PDBConverter:
-    """A class for converting MCCE PDB files to PDB file."""
-
+    """A class for converting MCCE PDB files to PDB file.
+    """
     def __init__(self, mccepdb_path: Path, s2rename_dict: dict, output_dir: Path):
         """
         Attributes:
@@ -116,6 +113,8 @@ class Mcce2PDBConverter:
         self.rename_dict = s2rename_dict
         # values of chain_dict is the step2 line number (starting at 1)
         self.output_dir = output_dir
+
+        return
 
     def get_pdb_line(self, mcce_line: str) -> str:
         """Return the standard pdb coordinates line."""
@@ -196,6 +195,8 @@ class Mcce2PDBConverter:
 
 def get_non_canonical_dict(df: pd.DataFrame) -> dict:
     """Return a dict with the non-canonical residues info, if any."""
+    logger.info("Getting the non-canonical residues info, if any.")
+
     non_canonical = defaultdict(dict)
     vec_cols = df.columns[1 : df.columns.tolist().index("info")]
     for c in df[vec_cols]:
@@ -261,6 +262,8 @@ def non_canonical_text(nc_dict: dict) -> str:
 
 
 def write_summary_file(tsv_fp: Path, n_top: int, res_kinds: list = None):
+    logger.info("Writing summary file.")
+
     sumry = """
 # Summary for top {} charge microstates:
 # --------------------------------------
@@ -351,6 +354,7 @@ def filter_df_residue_kinds(df: pd.DataFrame, residue_kinds: list = IONIZABLE_RE
     tots = df["info"] == "totals"
     inkind = df["residues"].str[:3].isin(residue_kinds)
     new = pd.concat([df[inkind], df[tots]]).replace(pd.NA, " ")
+
     return new
 
 
@@ -381,7 +385,6 @@ def get_pdb_remark(remark_data: dict):
     > REMARK 250 is mandatory if other than X-ray, NMR, neutron, or electron study.
     [Ref]: https://www.wwpdb.org/documentation/file-format-content/format33/remarks1.html#REMARK%20250
     """
-
     R250 = """REMARK 250
 REMARK 250 EXPERIMENTAL DETAILS
 REMARK 250   EXPERIMENT TYPE               : MCCE simulation
@@ -449,7 +452,8 @@ def confs_to_pdb(
 
 
 def s2out2pqr(s2_fp: str):
-    """Convert a MCCE step2_out.pdb file to a pqr file (s2.pqr)."""
+    """Convert a MCCE step2_out.pdb file to a pqr file (s2.pqr).
+    """
     pqr_frmt = "{:6s} {:>5} {:^4} {:3} {:>5} {:>8} {:>8} {:>8} {:>6} {:>6}\n"
     #           rec, seqnum, atm, res, resnum, x, y, z, crg, rad
 
@@ -484,7 +488,9 @@ def s2out2pqr(s2_fp: str):
 def get_confids_dict(
     top_ms: list, conf_ids: np.ndarray, fixed_iconfs: list, ms_idx: int
 ) -> dict:
-    """Combine the free confids in a microstate with the fixed ones into a dict."""
+    """Combine the free confids in a microstate with the fixed ones into a dict.
+    """
+    logger.info("Combining free and fixed confids.")
     fixed_ids = conf_ids[fixed_iconfs]
     free_ids = conf_ids[top_ms[ms_idx][1], 1]
     # dict used for convenience of '.get' method for identifying conf to write in pdb;
@@ -603,8 +609,8 @@ def extend_residue_kinds(res_kinds: list) -> list:
     new_res = sym_diff.difference(ioniz_set)
     if new_res:
         return IONIZABLE_RES + sorted(new_res)
-    else:
-        return IONIZABLE_RES
+
+    return IONIZABLE_RES
 
 
 def sort_resoi_list(res_kinds: list) -> list:
@@ -723,6 +729,8 @@ class TopNCmsPipeline:
         Output folder: {self.output_dir}
         """
         logger.info(msg)
+    
+        return
 
     def load_data(self):
         # Logic to get file paths and instantiate MSout_np
@@ -730,6 +738,7 @@ class TopNCmsPipeline:
         # h3_fp, step2_fp, msout_fp
         self.mcce_files = get_mcce_filepaths(self.mcce_dir, self.args.ph, self.args.eh)
         # using default mc_load="all": load ms and cms data:
+        logger.info("Loading ms and cms data into MSout_np")
         self.mso = MSout_np(
             self.mcce_files[0],
             self.mcce_files[2],
@@ -737,10 +746,8 @@ class TopNCmsPipeline:
             with_tautomers=True,
         )
         logger.info(self.mso)
-        show_elapsed_time(
-            start_time,
-            info="Loading msout file for charge ms and associated conf ms data",
-        )
+
+        return
 
     def process_microstates(self):
         # Logic using self.mso to get unique and top N states
@@ -756,6 +763,8 @@ class TopNCmsPipeline:
         show_elapsed_time(
             start_time, info="Getting unique charge ms and associated conf ms data"
         )
+
+        return
 
     def write_mcce_pdbs(self):
         # Logic calling write_tcrgms_pdbs
@@ -778,9 +787,13 @@ class TopNCmsPipeline:
             dry=self.dry,
         )
 
+        return
+
     def convert_pdbs(self):
         # Logic calling mccepdbs_to_pdbs
         mccepdbs_to_pdbs(self.output_dir, self.mso.get_ter_dict(), rm_prefix=S2PREF)
+
+        return
 
     def write_tsv_and_summary(self):
         # Finalize DF, write TSV, write summary
@@ -789,6 +802,8 @@ class TopNCmsPipeline:
         write_summary_file(tsv_fp, self.args.n_top, res_kinds=self.residue_kinds)
         msg = "".join(["Summary:\n", tsv_fp.parent.joinpath("summary.txt").read_text()])
         logger.info(msg)
+
+        return
 
     def run(self, tool_prompt: bool = False):
         # Orchestrates the pipeline call sequence
@@ -805,50 +820,15 @@ class TopNCmsPipeline:
         show_elapsed_time(out_time, info="Writing all output files")
         show_elapsed_time(start_time, info="Entire pipeline")
 
+        return
 
-DESC = """
-Description:
-  ms_top2pdbs :: TopN protonation microstates to pdb & pqr files.
 
-  This tool outputs:
-  - The listing of the topN tautomeric protonation microstates, along with
-    their related properties: mean energy (E), net charge (sum_crg), count,
-    and occupancy (occ);
-  - A summary file identifying ionizable residues with non canonical charge,
-    and which of them do not change their charges over the topN set.
-  - The <topN> files of each charge state in mcce-pdb & pqr and pdb formats.
-
-Usage examples:
-* If called inside a mcce output folder (not a requirement) & using the defaults;
-  mcce_dir=., ph=7, eh=0, n_top=5, min_occ=0 and residue_kinds=ionizable residues:
-  > ms_top2pdbs
-
-* Otherwise:
-  > ms_top2pdbs path/to/mcce_dir
-  > ms_top2pdbs path/to/mcce_dir -eh 30
-  > ms_top2pdbs path/to/mcce_dir -min_occ 0.002
-  > ms_top2pdbs path/to/mcce_dir -ph 4 n_top 10
-
-  # Residues: comma-separated; order & case insensitive:
+DESC = """Obtain the TopN protonation microstates to pdb & pqr files.
+Note: Values to the '-residue_kinds' option must be comma-separated; order & case insensitive:
   > ms_top2pdbs -residue_kinds _CL,his,GLU
 
-INPUT FILES: head3.lst, step2_out.pdb, and the 'msout file' in the ms_out sub-directory,
-             e.g. ms_out/pH7eH0ms.txt at ph 7.
-
-OUTPUT FOLDER: mcce_dir/topms_ph7eh0_top5 (7, 0 and 5 are the default pH, Eh and number
+OUTPUT FOLDER default: mcce_dir/topms_ph7eh0_top5 (7, 0 and 5 are the default pH, Eh and number
                of top states requested).
-
-OUTPUT FILES:
- - topN_ms.tsv: Charge of all acid/base residues in topN tautomeric protonation microstates + neural
-                His tautomer. The last rows contain the mean energy (E) of this microstate, total
-                charge (sum_crg), count (size), and probability (occ) of this microstate in ensemble.
- - summary.txt: List non-charged Asp, Glu, Arg, Lys, charged His, Tyr, Cys and neutral His tautomers
-                in topN microstates.
-
- At most top_n coordinate files in these formats:
-  - topmsN.pdb output each microstate in pdb format; N=1, 2, ..., top_n
-  - s2_topmsN.pdb output each microstate in MCCE step2_out.pdb format
-  - s2_topmsN.pqr output in pqr format (position, charge, radius)
 """
 
 
@@ -856,7 +836,6 @@ def cli_parser() -> ArgumentParser:
     p = ArgumentParser(
         prog=f"{APP_NAME}",
         description=DESC,
-        formatter_class=RawDescriptionHelpFormatter,
         epilog="""Report issues & feature requests here:
         https://github.com/GunnerLab/MCCE4/issues
         """,
@@ -923,7 +902,9 @@ def cli(argv=None, tool_prompt=False):
     """
     clip = cli_parser()
     args = clip.parse_args(argv)
+    print(f">>> Start of {APP_NAME} processing pipeline...\n")
     pipeline = TopNCmsPipeline(args)
     pipeline.run(tool_prompt=tool_prompt)
+    print(f"<<< End of{APP_NAME}.")
 
     return

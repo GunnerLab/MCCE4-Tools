@@ -38,6 +38,7 @@ Provides these helper functions:
 import logging
 from pathlib import Path
 import subprocess
+from subprocess import CompletedProcess, CalledProcessError
 import sys
 import time
 from typing import Callable, List, Tuple, Union
@@ -82,14 +83,13 @@ def subprocess_run(
     check: bool = False,
     text: bool = True,
     shell: bool = True,
-) -> Union[subprocess.CompletedProcess, subprocess.CalledProcessError]:
+) -> Union[CompletedProcess, CalledProcessError]:
     """Wraps subprocess.run. Return CompletedProcess or err obj."""
-
     try:
         data = subprocess.run(
             cmd, capture_output=capture_output, check=check, text=text, shell=shell
         )
-    except subprocess.CalledProcessError as e:
+    except CalledProcessError as e:
         data = e
 
     return data

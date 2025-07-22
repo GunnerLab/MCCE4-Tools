@@ -252,6 +252,7 @@ class MSout_np:
           [iconf, resid, in_kinds, is_ioniz, is_fixed, is_free, resix, crg];
         Field 'is_fixed' is needed for proper accounting of net charge.
         """
+        print("\nPopulating the lookup array with head3.lst and msout file header data")
         with open(h3_fp) as h3:
             lines = h3.readlines()[1:]
 
@@ -324,9 +325,9 @@ class MSout_np:
                 resix = -1
             conf_info[i][-2] = resix
 
-        print("\nHead3 lookup array 'conf_info'\n\tfields ::",
-              "iconf:0, resid:1, in_kinds:2, is_ioniz:3,",
-              "is_fixed:4, is_free:5, resix:6, crg:7\n")
+        # print("\nHead3 lookup array 'conf_info'\n\tfields ::",
+        #       "iconf:0, resid:1, in_kinds:2, is_ioniz:3,",
+        #       "is_fixed:4, is_free:5, resix:6, crg:7\n")
         return conf_info, cms_resids, conf_ids
 
     def get_ter_dict(self) -> dict:
@@ -492,6 +493,7 @@ class MSout_np:
         and protonation microstates to numpy.arrays MSout_np.all_ms 
         and MSout_np.all_cms.
         """
+        print("Loading ms and cms data into arrays.")
         found_mc = False
         newmc = False
         ro = -1  # list item accessor
@@ -607,6 +609,8 @@ class MSout_np:
         else:
             print(f"WARNING: No processing function associated with: {self.mc_load}")
 
+        return
+
     def _get_uniq_cms(self):
         """Assign unique crg ms info (state, totE, averE, count) to self.uniq_cms;
         Assign count of unique cms to self.N_cms_uniq.
@@ -663,6 +667,7 @@ class MSout_np:
             [list(k), subtot_d[k][1], subtot_d[k][-1] / self.N_space, subtot_d[k][-1]] for k in subtot_d
         ]
         self.uniq_ms = np.array(sorted(mslist, key=lambda x: x[-1], reverse=True), dtype=object)
+
         return
 
     def _get_uniq_all_cms(self):
@@ -671,6 +676,7 @@ class MSout_np:
         In this case, each of their items starts with an index,
         which can be used to match conf ms to each unique cms.
         """
+        print("Getting unique cms array.")
         subtot_d = {}
         # vec :: [idx, state, totE, averE, count]
         for ix, itm in enumerate(self.all_cms):
@@ -707,6 +713,7 @@ class MSout_np:
         return
 
     def _get_uniq_all_ms(self):
+        print("Getting unique ms array.")
         # ms in ::  [idx, state, state.e, count]
         subtot_d = {}
         for _, itm in enumerate(self.all_ms):
@@ -724,6 +731,7 @@ class MSout_np:
             for k in subtot_d
         ]
         self.uniq_ms = np.array(sorted(mslist, key=lambda x: x[-1], reverse=True), dtype=object)
+
         return
     
     def get_free_residues_df(self) -> pd.DataFrame:
@@ -805,6 +813,7 @@ class MSout_np:
           2. With 'all_ms_out' set to True: dict values are all related conf ms:
             > top_cms, top_ms_dict = msout_np.get_topN_data(all_ms_out=True)
         """
+        print("Geting top N data.")
         # determine which topn data to return as per mc_load:
         which_top = {"conf":1, "crg":2, "all":3}
         process_top = which_top[self.mc_load]
@@ -898,9 +907,11 @@ class MSout_np:
             if fixed_free_res is not None:
                 fields.extend(fixed_free_res[:,1])
             if ix_state == 1:
-                fields.extend([round(itm[3], 2), sum(state) + self.background_crg, itm[5], round(itm[4], 4)])
+                # sci notation for occ
+                # print(f"{number:.2e}") # Output: 1.23e+06
+                fields.extend([round(itm[3], 2), sum(state) + self.background_crg, itm[5], f"{itm[4]:.2e}"])
             else:
-                fields.extend([round(itm[2], 2), sum(state) + self.background_crg, itm[4], round(itm[3], 4)])
+                fields.extend([round(itm[2], 2), sum(state) + self.background_crg, itm[4], f"{itm[3]:.2e}"])
             data.append(fields)
 
         if not cms_wc_format:
