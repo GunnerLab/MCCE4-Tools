@@ -8,6 +8,9 @@ mode' argument, which can be:
  - 'conf' :: only conformer microstates in MSout_np.all_ms
  - 'crg' :: only protonation microstates in MSout_np.all_cms
  - 'all :: both protonation and conformer microstates in both arrays.
+When 'mc_load' is "all", boolean argument 'reduced_ms_row' set to True will
+output in MSout_np.all_ms as many as charge microstates saved in MSout_np.all_cms.
+With 'reduced_ms_row' set to False, all conformer microstates are saved.
 
 Note:
 * Naming convention:
@@ -33,6 +36,7 @@ from mcce4.constants import IONIZABLE_RES as IONIZABLES, ROOMT
 from mcce4.io_utils import reader_gen, show_elapsed_time
 
 
+N_HDR = 11        # header lines in msout file (non mc data)
 MIN_OCC = 0.0  # occ threshold
 N_top = 5      # top N default
 HIS0_tautomers = {0: "NE2", 1: "ND1", 2: 1}
@@ -67,6 +71,8 @@ class MSout_np:
         - res_kinds (list, None): List of 3-letter residue/ligand names, e.g. ['GLU', 'HEM'];
           Defaults to IONIZABLES with mc_load='all' or 'crg'.
         - with_tautomers (bool, False): Whether to return the tautomer string instead of the charge
+        - reduced_ms_rows (bool, False): With mc_load="all", indicates whether to save all
+          conformers into MSout_np.all_ms array or only as many as the charge microstates.
 
     Details:
         1. Reads head3.lst & the msout file header and creates a conformer data
@@ -98,6 +104,7 @@ class MSout_np:
                  res_kinds: list = None,
                  with_tautomers: bool = False,
                  loadtime_estimate: bool = False,
+                 reduced_ms_rows: bool = False
                  ):
 
         self.validate_kwargs(mc_load, res_kinds, with_tautomers)
@@ -109,6 +116,7 @@ class MSout_np:
         self.fixed_iconfs: list = []
         self.free_residues: list = []  # needed in get_conf_info
         self.iconf2ires: dict = {}
+        self.reduced_ms_rows = reduced_ms_rows
 
         # attributes populated by self.get_conf_info:
         self.N_confs: int = None
@@ -122,7 +130,7 @@ class MSout_np:
         self.background_crg: int = None
 
         # attributes populated by the 'load' functions:
-        self.N_space: int = None     # size of conformal state space
+        self.N_space: int = None     # size of state space
         self.N_mc_lines: int = None  # total number of mc lines (accepted states data)
         self.N_cms: int = None       # total number of crg (protonation) ms
         # np.arrays to receive the lists of conf/crg ms: 
@@ -358,8 +366,8 @@ class MSout_np:
         ms_vec = []  # list to hold conf ms info
 
         msout_data = reader_gen(self.msout_file)
-        for lx, line in enumerate(msout_data):
-            if lx < 9:
+        for lx, line in enumerate(msout_data, start=1):
+            if lx < N_HDR:
                 continue
             line = line.strip()
             if not line or line[0] == "#":
@@ -381,23 +389,25 @@ class MSout_np:
 
                 if found_mc:
                     fields = line.split(",")
-                    if len(fields) >= 3:
-                        state_e = float(fields[0])
-                        count = int(fields[1])
-                        flipped = [int(c) for c in fields[2].split()]
-                        for ic in flipped:
-                            ir = self.iconf2ires[ic]
-                            current_state[ir] = ic
-
-                        ms_vec.append([list(current_state), state_e, count])
-                    else:
+                    if len(fields) < 3:
                         continue
+                    state_e = float(fields[0])
+                    count = int(fields[1])
+                    flipped = [int(c) for c in fields[2].split()]
+                    for ic in flipped:
+                        ir = self.iconf2ires[ic]
+                        current_state[ir] = ic
 
+                    ms_vec.append([list(current_state), state_e, count])
+
+        self.N_mc_lines = lx - N_HDR   # ~ larger than actual mc data lines
+        print(f"Accepted states lines: {self.N_mc_lines:,}\n")
         if ms_vec:
             self.all_ms = np.array(ms_vec, dtype=object)
-            self.N_mc_lines = len(self.all_ms)
-            print(f"Accepted states lines: {self.N_mc_lines:,}\n")
             self.N_space = self.all_ms[:, -1].sum()
+            print(f"State space: {self.N_space:,}")
+            self.N_ms = len(self.all_ms)
+            print(f"conformer microstates loaded: {self.N_ms:,}\n")
         else:
             return ValueError("Something went wrong in loading msout file: 'ms_vec' is empty!")
 
@@ -416,8 +426,8 @@ class MSout_np:
         cms_vec = []
 
         msout_data = reader_gen(self.msout_file)
-        for lx, line in enumerate(msout_data):
-            if lx < 7:
+        for lx, line in enumerate(msout_data, start=1):
+            if lx < N_HDR:
                 continue
             line = line.strip()
             if not line or line[0] == "#":
@@ -452,35 +462,38 @@ class MSout_np:
 
                 if found_mc:
                     fields = line.split(",")
-                    if len(fields) >= 3:
-                        state_e = float(fields[0])
-                        count = int(fields[1])
-                        flipped = [int(c) for c in fields[2].split()]
-                        for ic in flipped:
-                            ir = self.iconf2ires[ic]
-                            current_state[ir] = ic
-
-                        # flipped iconfs from non-ionizable or fixed res
-                        # => same protonation state: increment totE & count;
-                        # Note: -1 is a sentinel index for this situation.
-                        update_cms = np.all(self.conf_info[flipped, -2] == -1)
-                        if update_cms:
-                            # cms_vec ::  [state, totE, averE, count]
-                            cms_vec[ro][1] += state_e * count
-                            cms_vec[ro][3] += count
-                            cms_vec[ro][2] = cms_vec[ro][1] / cms_vec[ro][3]
-                        else:
-                            ro += 1
-                            cms_vec.append([[0] * len(self.cms_resids), state_e * count, state_e, count])
-                            curr_info = self.conf_info[current_state]
-                            upd = curr_info[np.where(curr_info[:, -2] != -1)][:, -2:]  # -> [resix, crg]
-                            for u in upd:
-                                cms_vec[ro][0][u[0]] = u[1]
-                    else:
+                    if len(fields) < 3:
                         continue
+
+                    state_e = float(fields[0])
+                    count = int(fields[1])
+                    flipped = [int(c) for c in fields[2].split()]
+                    for ic in flipped:
+                        ir = self.iconf2ires[ic]
+                        current_state[ir] = ic
+
+                    # flipped iconfs from non-ionizable or fixed res
+                    # => same protonation state: increment totE & count;
+                    # Note: -1 is a sentinel index for this situation.
+                    update_cms = np.all(self.conf_info[flipped, -2] == -1)
+                    if update_cms:
+                        # cms_vec ::  [state, totE, averE, count]
+                        cms_vec[ro][1] += state_e * count
+                        cms_vec[ro][3] += count
+                        cms_vec[ro][2] = cms_vec[ro][1] / cms_vec[ro][3]
+                    else:
+                        ro += 1
+                        cms_vec.append([[0] * len(self.cms_resids), state_e * count, state_e, count])
+                        curr_info = self.conf_info[current_state]
+                        upd = curr_info[np.where(curr_info[:, -2] != -1)][:, -2:]  # -> [resix, crg]
+                        for u in upd:
+                            cms_vec[ro][0][u[0]] = u[1]
+
+        self.N_mc_lines = lx - N_HDR   # ~ larger than actual mc data lines
         if cms_vec:
             self.all_cms = np.array(cms_vec, dtype=object)
             self.N_space = self.all_cms[:, -1].sum()
+            print(f"State space: {self.N_space:,}")
             self.N_cms = len(self.all_cms)
             print(f"Protonation microstates: {self.N_cms:,}\n")
         else:
@@ -488,7 +501,7 @@ class MSout_np:
 
         return
 
-    def load_all(self):
+    def _load_all_reduced(self):
         """Process the 'msout file' mc lines to output both conformal
         and protonation microstates to numpy.arrays MSout_np.all_ms 
         and MSout_np.all_cms.
@@ -502,8 +515,111 @@ class MSout_np:
         ms_vec = []
 
         msout_data = reader_gen(self.msout_file)
-        for lx, line in enumerate(msout_data):
-            if lx < 9:
+        # start MUST be 1
+        for lx, line in enumerate(msout_data, start=1):
+            if lx < N_HDR:
+                continue
+            line = line.strip()
+            if not line or line[0] == "#":
+                continue
+            else:
+                # find the next MC record
+                if line.startswith("MC:"):
+                    found_mc = True
+                    newmc = True
+                    continue
+
+                if newmc:
+                    # line with candidate state for MC sampling, e.g.:
+                    # 41:0 3 16 29 41 52 54 68 70 73 ... # ^N: number of free iconfs in state
+                    ro += 1  # will be 0 at "MC:0" + 1 line
+                    current_state = [int(i) for i in line.split(":")[1].split()]
+
+                    # cms_vec ::  [idx, state, totE, averE, count]
+                    cms_vec.append([ro, [0] * len(self.cms_resids), 0, 0, 0])
+                    # update cms_vec state:
+                    curr_info = self.conf_info[current_state]
+                    upd = curr_info[np.where(curr_info[:, -2] != -1)][:, -2:]  # -> [resix, crg]
+                    for u in upd:
+                        cms_vec[ro][1][u[0]] = u[1]
+                    # initial ms_vec:
+                    ms_vec.append([ro, list(current_state), 0, 0])
+
+                    newmc = False
+                    continue
+
+                if found_mc:
+                    fields = line.split(",")
+                    if len(fields) < 3:
+                        continue
+                    state_e = float(fields[0])
+                    count = int(fields[1])
+                    flipped = [int(c) for c in fields[2].split()]
+                    for ic in flipped:
+                        ir = self.iconf2ires[ic]
+                        current_state[ir] = ic
+
+                    if ro == 0:  # update initial
+                        ms_vec[0][2] += state_e
+                        ms_vec[0][3] += count
+
+                    # if the flipped iconfs are from non-ionizable or fixed res,
+                    # the protonation state is the same: increment count & E;
+                    # Note: -1 is a sentinel index for this situation.
+                    update_cms = np.all(self.conf_info[flipped, -2] == -1)
+                    if update_cms:
+                        # cms_vec ::  [idx, state, totE, averE, count]
+                        cms_vec[ro][2] += state_e * count
+                        cms_vec[ro][4] += count
+                        cms_vec[ro][3] = cms_vec[ro][2] / cms_vec[ro][4]
+                    else:
+                        ro += 1  # new cms
+                        # save new ms
+                        ms_vec.append([ro, list(current_state), state_e, count])
+                        # save new cms, create new list item & update with data from
+                        # lookup array for the current state
+                        cms_vec.append([ro, [0] * len(self.cms_resids), state_e * count, state_e, count])
+                        curr_info = self.conf_info[current_state]
+                        upd = curr_info[np.where(curr_info[:, -2] != -1)][:, -2:]  # -> [resix, crg]
+                        for u in upd:
+                            cms_vec[ro][1][u[0]] = u[1]
+
+        self.N_mc_lines = lx - N_HDR   # ~ larger than actual mc data lines
+        print(f"Accepted states lines: {self.N_mc_lines:,}\n")
+        if ms_vec:
+            self.all_ms = np.array(ms_vec, dtype=object)
+            self.N_ms = len(self.all_ms)
+            print(f"Conformer microstates loaded: {self.N_ms:,}\n")
+        else:
+            return ValueError("Something went wrong in loading msout file: 'ms_vec' is empty!")
+        
+        if cms_vec:
+            self.all_cms = np.array(cms_vec, dtype=object)
+            self.N_cms = len(self.all_cms)
+            print(f"Protonation microstates found: {self.N_cms:,}\n")
+            self.N_space = self.all_cms[:, -1].sum()
+            print(f"State space: {self.N_space:,}")
+        else:
+            return ValueError("Something went wrong in loading msout file: 'cms_vec' is empty!")
+
+        return
+
+    def _load_all(self):
+        """Process the 'msout file' mc lines to output both conformal
+        and protonation microstates to numpy.arrays MSout_np.all_ms 
+        and MSout_np.all_cms.
+        """
+        print("Loading ms and cms data into arrays; fn: _load_all.")
+        found_mc = False
+        newmc = False
+        ro = -1  # list item accessor
+        # lists to hold conf and crg ms info; they can be related by their common index;
+        cms_vec = []
+        ms_vec = []
+
+        msout_data = reader_gen(self.msout_file)
+        for lx, line in enumerate(msout_data, start=1):
+            if lx < N_HDR:
                 continue
             line = line.strip()
             if not line or line[0] == "#":
@@ -534,39 +650,41 @@ class MSout_np:
 
                 if found_mc:
                     fields = line.split(",")
-                    if len(fields) >= 3:
-                        state_e = float(fields[0])
-                        count = int(fields[1])
-                        flipped = [int(c) for c in fields[2].split()]
-                        for ic in flipped:
-                            ir = self.iconf2ires[ic]
-                            current_state[ir] = ic
+                    if len(fields) < 3:
+                        continue
 
-                        ms_vec.append([ro, list(current_state), state_e, count])
+                    state_e = float(fields[0])
+                    count = int(fields[1])
+                    flipped = [int(c) for c in fields[2].split()]
+                    for ic in flipped:
+                        ir = self.iconf2ires[ic]
+                        current_state[ir] = ic
 
-                        # if the flipped iconfs are from non-ionizable or fixed res,
-                        # the protonation state is the same: increment count & E;
-                        # Note: -1 is a sentinel index for this situation.
-                        update_cms = np.all(self.conf_info[flipped, -2] == -1)
-                        if update_cms:
-                            # cms_vec ::  [idx, state, totE, averE, count]
-                            cms_vec[ro][2] += state_e * count
-                            cms_vec[ro][4] += count
-                            cms_vec[ro][3] = cms_vec[ro][2] / cms_vec[ro][4]
-                        else:
-                            ro += 1  # new cms
-                            cms_vec.append([ro, [0] * len(self.cms_resids), state_e * count, state_e, count])
+                    ms_vec.append([ro, list(current_state), state_e, count])
 
-                            curr_info = self.conf_info[current_state]
-                            upd = curr_info[np.where(curr_info[:, -2] != -1)][:, -2:]  # -> [resix, crg]
-                            for u in upd:
-                                cms_vec[ro][1][u[0]] = u[1]
+                    # if the flipped iconfs are from non-ionizable or fixed res,
+                    # the protonation state is the same: increment count & E;
+                    # Note: -1 is a sentinel index for this situation.
+                    update_cms = np.all(self.conf_info[flipped, -2] == -1)
+                    if update_cms:
+                        # cms_vec ::  [idx, state, totE, averE, count]
+                        cms_vec[ro][2] += state_e * count
+                        cms_vec[ro][4] += count
+                        cms_vec[ro][3] = cms_vec[ro][2] / cms_vec[ro][4]
+                    else:
+                        ro += 1  # new cms
+                        cms_vec.append([ro, [0] * len(self.cms_resids), state_e * count, state_e, count])
+                        curr_info = self.conf_info[current_state]
+                        upd = curr_info[np.where(curr_info[:, -2] != -1)][:, -2:]  # -> [resix, crg]
+                        for u in upd:
+                            cms_vec[ro][1][u[0]] = u[1]
 
+        self.N_mc_lines = lx - N_HDR   # ~ larger than actual mc data lines
+        print(f"Accepted states lines: {self.N_mc_lines:,}\n")
         if ms_vec:
             self.all_ms = np.array(ms_vec, dtype=object)
-            self.N_mc_lines = len(self.all_ms)
-            print(f"Accepted states lines: {self.N_mc_lines:,}\n")
-            self.N_space = self.all_ms[:, -1].sum()
+            self.N_ms = len(self.all_ms)
+            print(f"Conformer microstates loaded: {self.N_ms:,}\n")
         else:
             return ValueError("Something went wrong in loading msout file: 'ms_vec' is empty!")
         
@@ -574,11 +692,23 @@ class MSout_np:
             self.all_cms = np.array(cms_vec, dtype=object)
             self.N_cms = len(self.all_cms)
             print(f"Protonation microstates: {self.N_cms:,}\n")
+            self.N_space = self.all_cms[:, -1].sum()
+            print(f"State space: {self.N_space:,}")
         else:
             return ValueError("Something went wrong in loading msout file: 'cms_vec' is empty!")
 
         return
 
+    def load_all(self):
+        """Wrapper function for switching load_all fn depending on reduced_ms_rows.
+        """
+        if self.reduced_ms_rows:
+            self._load_all_reduced()
+        else:
+            self._load_all()
+
+        return
+    
     def get_uniq_ms(self):
         """Semaphore function to call the 'get unique' function corresponding
         to .mc_load loading mode.
@@ -842,12 +972,19 @@ class MSout_np:
                 top_ms = {}
                 for ro in topN_cms_occ[:,0]:
                     matched_ms = self.all_ms[np.where(self.all_ms[:, 0] == ro)]
+                    n_matched = len(matched_ms)
+                    if not n_matched:
+                        sys.exit("ERROR - 'get_topN_data': No associated ms found!")
+
                     if all_ms_out:
                         top_ms[ro] = matched_ms
                     else:
-                        if len(matched_ms) > 1:
+                        if self.reduced_ms_rows:
+                            top_ms[ro] = matched_ms[0]
+                        elif n_matched > 1:
                             # get the most numerous:
-                            top_ms[ro] = sorted(matched_ms, key=lambda x: x[-1], reverse=True)[0]
+                            top_ms[ro] = sorted(matched_ms,
+                                                key=lambda x: x[-1], reverse=True)[0]
                         else:
                             top_ms[ro] = matched_ms[0]
                 return top_cms, top_ms
@@ -869,7 +1006,7 @@ class MSout_np:
             top_ms = []
             if len(topN_ms_occ):
                 top_ms = topN_ms_occ.tolist()
-                print(f"Number of top ms returned: {len(top_cms):,}")
+                print(f"Number of top ms returned: {len(top_ms):,}")
             return top_ms, None
 
     def top_cms_df(self, top_cms: list,
@@ -906,12 +1043,14 @@ class MSout_np:
                 fields.extend([s])
             if fixed_free_res is not None:
                 fields.extend(fixed_free_res[:,1])
+
+            # sci notation for occ, e.g.: 1.23e+06
             if ix_state == 1:
-                # sci notation for occ
-                # print(f"{number:.2e}") # Output: 1.23e+06
-                fields.extend([round(itm[3], 2), sum(state) + self.background_crg, itm[5], f"{itm[4]:.2e}"])
+                fields.extend([round(itm[3], 2), sum(state) + self.background_crg, itm[5],
+                               f"{itm[4]:.2e}"])
             else:
-                fields.extend([round(itm[2], 2), sum(state) + self.background_crg, itm[4], f"{itm[3]:.2e}"])
+                fields.extend([round(itm[2], 2), sum(state) + self.background_crg, itm[4],
+                               f"{itm[3]:.2e}"])
             data.append(fields)
 
         if not cms_wc_format:
