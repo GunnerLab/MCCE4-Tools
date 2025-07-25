@@ -22,6 +22,7 @@ Usage examples:
   > ms_top2pdbs
 
 * Otherwise:
+  > ms_top2pdbs --reduced_ms_rows  # save only as many ms data rows as there are in cms data
   > ms_top2pdbs path/to/mcce_dir
   > ms_top2pdbs path/to/mcce_dir -eh 30
   > ms_top2pdbs path/to/mcce_dir -min_occ 0.002
@@ -808,7 +809,7 @@ class TopNCmsPipeline:
     def run(self, tool_prompt: bool = False):
         # Orchestrates the pipeline call sequence
         start_time = time.time()
-        logger.info("Starting...")
+        logger.info(f"Starting {APP_NAME}...")
         self.setup_environment(tool_prompt)
         self.display_options()
         self.load_data()
@@ -890,6 +891,15 @@ def cli_parser() -> ArgumentParser:
         default=False,
         action="store_true",
         help="Overwrite existing output files; Default: %(default)s.",
+    )
+    p.add_argument(
+        "--reduced_ms_rows",
+        default=False,
+        action="store_true",
+        help="""True if given at the command line: when the MSout_np class loads 
+        both ms and cms data, the number of saved ms data rows will match that of 
+        the saved cms. Default: %(default)s."
+        """
     )
 
     return p
