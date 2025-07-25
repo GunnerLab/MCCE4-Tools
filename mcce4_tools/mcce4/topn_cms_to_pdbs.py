@@ -727,6 +727,7 @@ class TopNCmsPipeline:
         Occupancy threshold: {self.min_occ:.2%};
         Keep waters? {self.args.wet};
         Overwrite existing files? {self.args.overwrite};
+        Reduced number of ms data? {self.args.reduced_ms_rows};
         Output folder: {self.output_dir}
         """
         logger.info(msg)
@@ -745,6 +746,7 @@ class TopNCmsPipeline:
             self.mcce_files[2],
             res_kinds=self.residue_kinds,
             with_tautomers=True,
+            reduced_ms_rows=self.args.reduced_ms_rows,
         )
         logger.info(self.mso)
 
