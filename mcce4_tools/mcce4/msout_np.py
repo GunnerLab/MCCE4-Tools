@@ -922,6 +922,17 @@ class MSout_np:
 
         return filtered
 
+    def how_many_ms_to_ooc_pct(self, occ_pct: list=[50, 90]) -> int:
+        """
+        WIP
+        Return howm many (c)ms are ned to reach an occ of 50%, 90%, etc.
+        """
+        print("Checking occ drop.")
+        # determine which topn data to return as per mc_load:
+        which_top = {"conf":1, "crg":2, "all":3}
+        process_top = which_top[self.mc_load]
+        pass
+
     def get_topN_data(self, N: int = 5, min_occ: float = MIN_OCC,
                       all_ms_out: bool = False) -> Tuple[list, Union[dict, None]]:
         """
@@ -943,7 +954,7 @@ class MSout_np:
           2. With 'all_ms_out' set to True: dict values are all related conf ms:
             > top_cms, top_ms_dict = msout_np.get_topN_data(all_ms_out=True)
         """
-        print("Geting top N data.")
+        print("Getting top N data.")
         # determine which topn data to return as per mc_load:
         which_top = {"conf":1, "crg":2, "all":3}
         process_top = which_top[self.mc_load]
