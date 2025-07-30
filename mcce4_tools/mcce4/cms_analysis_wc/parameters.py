@@ -22,7 +22,7 @@ except ImportError as e:
     logger.critical("Oops! Forgot to activate an appropriate environment?\n", exc_info=e)
     sys.exit(1)
 
-from mcce4.cms_analysis_wc import IONIZABLES, MIN_OCC, N_top 
+from mcce4.cms_analysis_wc import IONIZABLES, MIN_OCC
 
 
 def params_main(ph: str="7", eh: str="0") -> dict:
@@ -34,13 +34,12 @@ def params_main(ph: str="7", eh: str="0") -> dict:
         "output_dir": f"crgms_corr_ph{ph}eh{eh}",
         "list_head3_ionizables": "False",
         "msout_file": f"pH{ph}eH{eh}ms.txt",
-        # Do not output file 'all_crg_count_res.csv'
-        # "main_csv": "all_crg_count_res.csv",
+        # Do not output "main_csv": "all_crg_count_res.csv",
         "fixed_res_of_interest_csv": "fixed_res_of_interest.csv",
         "all_crg_count_resoi_csv": "all_crg_count_resoi.csv",
         "all_res_crg_csv": "all_res_crg_status.csv",
         "res_of_interest_data_csv": "crg_count_res_of_interest.csv",
-        "n_top": str(N_top),
+        "n_top": "",
         "min_occ": str(MIN_OCC),
         "residue_kinds": IONIZABLES,
         "correl_resids": None,

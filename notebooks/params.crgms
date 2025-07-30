@@ -54,8 +54,8 @@
 # occupancy threshold used for returning unique charge ms:
   min_occ = 0.02
 
-# n_top: number of unique charge ms to return
-  n_top = 5
+# n_top: number of unique charge ms to return; Default: "" (all)
+#n_top = 
 
 
 # RESIDUES SELECTION

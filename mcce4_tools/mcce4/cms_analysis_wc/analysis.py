@@ -27,7 +27,7 @@ from mcce4.cms_analysis_wc import IONIZABLES, ACIDIC_RES, BASIC_RES, POLAR_RES
 from mcce4.cms_analysis_wc import parameters as prm
 from mcce4.cms_analysis_wc.plots import energy_distribution, crgms_energy_histogram, corr_heatmap
 from mcce4.io_utils import get_mcce_filepaths
-from mcce4.msout_np import MSout_np
+from mcce4.msout_np import MSout_np, MAX_INT
 
 
 CORR_METHODS = ["pearson", "spearman"]
@@ -445,7 +445,13 @@ class CMSWC_Pipeline:
         """Analyzes the top N microstates and prepares data for correlation.
         """
         logger.info("\nAnalyzing top microstates...")
-        n_top = int(self.main_prms.get("n_top", self.main_defaults["n_top"]))
+        # default is ""
+        n_top_str = self.main_prms.get("n_top", self.main_defaults["n_top"])
+        if n_top_str == "":
+            n_top = MAX_INT
+        else:
+            n_top = int(n_top_str)
+
         min_occ = float(self.main_prms.get("min_occ", self.main_defaults["min_occ"]))
 
         self.top_cms, _ = self.mc.get_topN_data(N=n_top, min_occ=min_occ)
