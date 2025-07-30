@@ -560,6 +560,10 @@ class CMSWC_Pipeline:
         energy_distribution(self.mc.all_cms, self.output_dir, kind="cms",
                             save_name=save_name, 
                             show=self.show_fig, fig_size=fig_size)
+        #TODO: re: Issue #10:
+        # plot crgms_energy_histogram for residues in self.correl_resids
+        # Needed: filterinf as in:
+        #   filtered_cms = self.mc.filter_cms_E_within_bounds(self.mc.all_cms, ebounds)
 
         # Charge Microstate Energy Histograms based on bounds
         cms_E_stats = self.mc.get_cms_energy_stats()
