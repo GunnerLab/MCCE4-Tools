@@ -1,0 +1,4 @@
+Default command line tools parameter files.
+...........................................
+* Files with extension ".crgms" are meant for use with the `ms_protonation` command-line tool.
+

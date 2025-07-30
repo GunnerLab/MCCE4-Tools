@@ -52,25 +52,20 @@ def list_head3_ionizables(h3_fp: Path, as_string: bool = True) -> list:
 
 def crgmsa_parser() -> ArgumentParser:
 
-    USAGE = f"""
-CALL EXAMPLE:
-  {APP_NAME} params.crgms
-
+    DESC = """Protonation Microstates Analysis with Weighted Correlation.
 The input parameter file must be found at the location where the command is run.
-
 Notes:
 1. If you add this line in your input parameter file:
      list_head3_ionizables = true
    the program will list the resids in head3.lst and exit;
    The list or a portion thereof can then be used as values to
    the 'correl_resids' identifier in the parameter file.
-2. Text files with an extension of '.crgms' in MCCE4/runprms can be copied, then modified
-   for use by this tool.
+2. Text files with an extension of '.crgms' in MCCE4-Tools/cli_parameter_files/
+   can be copied, then modified for use by this tool.
 """
     p = ArgumentParser(
         prog=APP_NAME,
-        description="Protonation Microstates Analysis with Weighted Correlation",
-        usage=USAGE,
+        description=DESC,
         formatter_class=RawDescriptionHelpFormatter,
     )
     p.add_argument("params_file", type=str, help="The input parameters file.")

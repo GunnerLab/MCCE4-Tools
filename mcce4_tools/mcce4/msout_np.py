@@ -18,6 +18,11 @@ Note:
 - 'ms' is a shortcut for conformational microstate.
 - 'msout file' refers to a .txt file that starts with 'pH<ph>' in the ms_out
   subfolder of an mcce run.
+
+CHANGELOG:
+2025-07-30: Changed default value for argument N to None in MSout.get_topN_data.
+            For backward compatibility, will default to N_top=5 if None.
+            A calling cli tool would be responsible to define a default.
 """
 from collections import defaultdict
 from itertools import islice
@@ -39,7 +44,8 @@ from mcce4.io_utils import reader_gen, show_elapsed_time
 N_HDR = 11        # header lines in msout file (non mc data)
 MC_METHODS = ["MONTERUNS", "ENUMERATE"]
 MIN_OCC = 0.0  # occ threshold
-N_top = 5      # top N default
+N_TOP = 5
+MAX_INT = np.iinfo(np.int32).max
 HIS0_tautomers = {0: "NE2", 1: "ND1", 2: 1}
 
 
@@ -934,7 +940,7 @@ class MSout_np:
         process_top = which_top[self.mc_load]
         pass
 
-    def get_topN_data(self, N: int = 5, min_occ: float = MIN_OCC,
+    def get_topN_data(self, N: int=None, min_occ: float = MIN_OCC,
                       all_ms_out: bool = False) -> Tuple[list, Union[dict, None]]:
         """
         Return a 2-tuple:
@@ -959,10 +965,14 @@ class MSout_np:
         # determine which topn data to return as per mc_load:
         which_top = {"conf":1, "crg":2, "all":3}
         process_top = which_top[self.mc_load]
-        
-        # recast input as they can be strings via the cli:
-        N = int(N)
         min_occ = float(min_occ)
+        if N is None:  # for backward compatibility:
+            N = N_TOP
+        elif N == MAX_INT:  # output all
+            N = self.N_ms_uniq if process_top == 1 else self.N_cms_uniq
+        else:
+            # recast input as they can be strings via the cli:
+            N = int(N)
 
         if process_top in (2, 3):
             if N > self.N_cms_uniq:
