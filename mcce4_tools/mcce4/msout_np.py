@@ -37,6 +37,7 @@ from mcce4.io_utils import reader_gen, show_elapsed_time
 
 
 N_HDR = 11        # header lines in msout file (non mc data)
+MC_METHODS = ["MONTERUNS", "ENUMERATE"]
 MIN_OCC = 0.0  # occ threshold
 N_top = 5      # top N default
 HIS0_tautomers = {0: "NE2", 1: "ND1", 2: 1}
@@ -231,7 +232,7 @@ class MSout_np:
                         self.Eh = value
             if i == 2:
                 key, value = line.split(":")
-                if key.strip() != "METHOD" or value.strip() != "MONTERUNS":
+                if key.strip() != "METHOD" or value.strip() not in MC_METHODS:
                     print("This file %s is not a valid microstate file" % self.msout_file)
                     sys.exit(-1)
             if i == 4:
