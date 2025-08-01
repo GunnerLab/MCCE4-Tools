@@ -41,8 +41,8 @@ from mcce4.constants import IONIZABLE_RES as IONIZABLES, ROOMT
 from mcce4.io_utils import reader_gen, show_elapsed_time
 
 
-N_HDR = 11        # header lines in msout file (non mc data)
-MC_METHODS = ["MONTERUNS", "ENUMERATE"]
+N_HDR = 6        # min header lines in msout file (non mc data)
+MC_METHODS = ["MONTERUNS"]
 MIN_OCC = 0.0  # occ threshold
 N_TOP = 5
 MAX_INT = np.iinfo(np.int32).max
@@ -239,8 +239,9 @@ class MSout_np:
             if i == 2:
                 key, value = line.split(":")
                 if key.strip() != "METHOD" or value.strip() not in MC_METHODS:
-                    print("This file %s is not a valid microstate file" % self.msout_file)
-                    sys.exit(-1)
+                    msg = (f"File {self.msout_file!s} is not a valid microstate file; "
+                           "method: {value.strip()}")
+                    sys.exit(msg)
             if i == 4:
                 _, iconfs = line.split(":")
                 self.fixed_iconfs = [int(i) for i in iconfs.split()]
