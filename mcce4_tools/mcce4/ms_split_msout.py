@@ -7,13 +7,18 @@ Description:
   from the nth MC run, or from a range of (consecutive) mc runs.
 """
 from argparse import ArgumentParser, Namespace
+from itertools import islice
 import logging
 from pathlib import Path
 import shutil
 import sys
 from typing import List, Union
 
-from mcce4.io_utils import subprocess_run, CalledProcessError
+from mcce4.io_utils import get_mcce_filepaths,  reader_gen
+from mcce4.io_utils import subprocess_run, CompletedProcess, CalledProcessError
+
+
+VALID_MC = ["MONTERUNS",]   # valid methods/format
 
 
 LOG = str(Path.cwd().joinpath("msout_split.log"))
@@ -36,10 +41,10 @@ HDR_FILE = "header.txt"
 def run_process(cmd: str):
     """Wrapper for catching failed subprocess_run function
     using all defaults.
-    Use for creating/precessing files with system calls, not
+    Use for creating/processing files with system calls, not
     when return data is needed.
     """
-    out = subprocess_run(cmd)
+    out = subprocess_run(cmd, check=True)
     if isinstance(out, CalledProcessError):
         sys.exit(out)
 
@@ -81,6 +86,61 @@ def get_msout_path(mcce_dir: Path, ph: str = "7", eh: str = "0") -> Path:
     return msout_fp
 
 
+def get_mc_method(msout_fp: Path) -> str:
+    with open(msout_fp) as fh:
+        head = list(islice(fh, 2))  # first 2 lines
+
+    key, value = head[1].split(":")
+    method = value.strip()
+    if key.strip() != "METHOD" or method not in VALID_MC:
+        print(f"Invalid msout file: {msout_fp!s}; method: {method!s}.")
+        method = "<invalid>"
+        
+    return method  
+
+
+def msout_with_mc_lines(mcce_dir: str, ph: str, eh: str):
+    """
+    Create smaller msout files with these number of accepted state lines:
+    10, 20, 50, 100, 200, 500, 1000.
+    The smaller files have the count in their extension: ".txt.sm<target_mc>",
+    i.e. pH7eH0ms.txt.sm10, and are save in the parent file location.
+    """
+    mcce_dir = Path(mcce_dir)
+
+    # h3_fp & s2_fp output paths not used here:
+    _, _, msout_fp = get_mcce_filepaths(mcce_dir, ph, eh)
+
+    method = get_mc_method(msout_fp)
+    if method == "<invalid>":
+        print("Not Applicable: Function applicable to msout files with method in {VALID_MC}.")
+        return
+        
+    N = 23  # N :: number of msout file lines to get 10 mc accepted state lines
+
+    # how many mc_lines to output; will be used in smaller file extension:
+    target_mc = [10, 20, 50, 100, 200, 500, 1000]
+    # head_n :: integers to pass to `head` command -n option:
+    # sorted in descending order so that the largest small file wil be reused as
+    # input for the others:
+    head_n = sorted([N + x for x in target_mc], reverse=True)
+
+    largest_fp = str(msout_fp.with_suffix(f".txt.sm{target_mc[-1]}"))
+
+    # create smaller msout files
+    for i, hn in enumerate(head_n, start=1):
+        msout_in = largest_fp
+        if i == 1:
+            msout_in = str(msout_fp)
+
+        outname = str(msout_fp.with_suffix(f".txt.sm{target_mc[-i]}"))
+        # create sed command:
+        cmd_str = "sed '/^MC\:1/q'" + f" {msout_in} | head -n{hn} > {outname}"
+        #print(cmd_str)
+        run_process(cmd_str, cwd=mcce_dir)
+
+    return
+
 def validate_mc_range(mc: list):
     if len(mc) > 2:
         sys.exit(f"Error: Argument mc (list) can have 2 items at most.")
@@ -110,7 +170,6 @@ def preserve_msout_file(msout_fp: Path, master_fp: Path):
 
 def extract_msout_header(master_fp: Path, hdr_fp: Path):
     if not Path(hdr_fp).exists():
-
         cmd = f"sed -n '/^MC\:0/q;p' {str(master_fp)} > {str(hdr_fp)}"
         run_process(cmd)
         logger.info(f"Saved msout file 'header' as {str(master_fp)}")
@@ -162,7 +221,6 @@ def extract_mc_data(master_fp: Path, mc: List[int]):
     run_process(cmd)
 
     return mc_out_fp
-
 
 
 def check_size_consistency(header_fp: Path, mc_data_fp: Path, msout_fp: Path):
@@ -253,6 +311,11 @@ def split_mc_file(args: Union[Namespace, dict]):
 
     # get the msout with standard name:
     msout_fp = get_msout_path(args.mcce_dir, ph=args.ph, eh=args.eh)
+    method = get_mc_method(msout_fp)
+    if method == "<invalid>":
+        print(f"Not Applicable: Function applicable to msout files with mc method in {VALID_MC}.")
+        return
+
     msout_dir = msout_fp.parent
     master_fp = msout_dir.joinpath(f"all_{msout_fp.name}")
     if args.reset_master:
