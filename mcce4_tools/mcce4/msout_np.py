@@ -41,7 +41,7 @@ from mcce4.constants import IONIZABLE_RES as IONIZABLES, ROOMT
 from mcce4.io_utils import reader_gen, show_elapsed_time
 
 
-N_HDR = 11        # header lines in msout file (non mc data)
+N_HDR = 6        # min header lines in msout file (non mc data)
 MC_METHODS = ["MONTERUNS"]
 MIN_OCC = 0.0  # occ threshold
 N_TOP = 5
