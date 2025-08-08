@@ -20,6 +20,9 @@ Note:
   subfolder of an mcce run.
 
 CHANGELOG:
+2025-08-08: Added functionality to allow for the format of the ENUMERATE method,
+            which is the analyticall method triggered when the number of accepted
+            states is <= 1_000_000 (per NSTATE_MAX key default).
 2025-07-30: Changed default value for argument N to None in MSout.get_topN_data.
             For backward compatibility, will default to N_top=5 if None.
             A calling cli tool would be responsible to define a default.
@@ -41,8 +44,8 @@ from mcce4.constants import IONIZABLE_RES as IONIZABLES, ROOMT
 from mcce4.io_utils import reader_gen, show_elapsed_time
 
 
-N_HDR = 6        # min header lines in msout file (non mc data)
-MC_METHODS = ["MONTERUNS"]
+N_HDR = 6      # min header lines in msout file (non mc data)
+MC_METHODS = ["MONTERUNS", "ENUMERATE"]
 MIN_OCC = 0.0  # occ threshold
 N_TOP = 5
 MAX_INT = np.iinfo(np.int32).max
@@ -114,16 +117,19 @@ class MSout_np:
                  reduced_ms_rows: bool = False
                  ):
 
-        self.validate_kwargs(mc_load, res_kinds, with_tautomers)
-
         # attributes populated by self.load_header:
         self.T: float = ROOMT
         self.pH: float = 7.0
         self.Eh: float = 0.0
+        self.method: str = ""
+        is_monte: bool = False
+        self.mc_load: str = ""
         self.fixed_iconfs: list = []
         self.free_residues: list = []  # needed in get_conf_info
         self.iconf2ires: dict = {}
         self.reduced_ms_rows = reduced_ms_rows
+
+        self.validate_kwargs(mc_load, res_kinds, with_tautomers)
 
         # attributes populated by self.get_conf_info:
         self.N_confs: int = None
@@ -188,13 +194,13 @@ class MSout_np:
     def validate_kwargs(self, mc_load: str, res_kinds: list, with_tautomers: bool):
         # valid loading modes:
         loading_modes = ["conf", "crg", "all"]
-        if mc_load.lower() not in loading_modes:
+        self.mc_load = mc_load.lower()
+        if self.mc_load not in loading_modes:
             msg = ("Argument mc_load must be one of "
                    f"{loading_modes} "
                    "to load either conformer or charge microstates, or both.")
             sys.exit(msg)
 
-        self.mc_load = mc_load.lower()
         if with_tautomers and self.mc_load == "conf":
             # not applicable (no cms returned), mc_load has precedence, reset:
             self.with_tautomers = False
@@ -238,10 +244,14 @@ class MSout_np:
                         self.Eh = value
             if i == 2:
                 key, value = line.split(":")
-                if key.strip() != "METHOD" or value.strip() not in MC_METHODS:
+                self.method = value.strip().upper() 
+                if key.strip() != "METHOD" or self.method not in MC_METHODS:
                     msg = (f"File {self.msout_file!s} is not a valid microstate file; "
-                           "method: {value.strip()}")
+                           "method: {self.method}")
                     sys.exit(msg)
+
+                self.is_monte = self.method == "MONTERUNS"
+
             if i == 4:
                 _, iconfs = line.split(":")
                 self.fixed_iconfs = [int(i) for i in iconfs.split()]
@@ -364,9 +374,9 @@ class MSout_np:
 
     def load_conf(self):
         """Process the 'msout file' mc lines to populate a list of
-        [state, state.E, count] items, where state is a list of conformal
-        microstates.
-        This list is then assignedd to MCout.all_ms as a numpy.array.
+        [state, state.E, count] items if method is MONTERUNS or [state, state.E, occ] if
+        method is ENUMERATE, where state is a list of conformal microstates.
+        This list is then assigned to MSout.all_ms as a numpy.array.
         """
         # print("Loading function: load_conf")
         found_mc = False
@@ -375,22 +385,29 @@ class MSout_np:
 
         msout_data = reader_gen(self.msout_file)
         for lx, line in enumerate(msout_data, start=1):
-            if lx < N_HDR:
+            if lx <= N_HDR:
                 continue
             line = line.strip()
             if not line or line[0] == "#":
                 continue
             else:
-                # find the next MC record
-                if line.startswith("MC:"):
-                    found_mc = True
-                    newmc = True
-                    continue
+                if self.is_monte:
+                    # find the next MC record
+                    if line.startswith("MC:"):
+                        found_mc = True
+                        newmc = True
+                        continue
+                else:
+                    if line.startswith(tuple("0123456789")) and ":" in line:
+                        found_mc = True
+                        current_state = [int(i) for i in line.split(":")[1].split()]
+                        newmc = False
+                        continue
 
                 if newmc:
+                    # newmc is still True for MONTERUNS
                     # line with candidate state for MC sampling, e.g.:
                     # 41:0 3 16 29 41 52 54 68 70 73 ... # ^N: number of free iconfs in state
-                    state_e = 0.0
                     current_state = [int(i) for i in line.split(":")[1].split()]
                     newmc = False
                     continue
@@ -399,8 +416,12 @@ class MSout_np:
                     fields = line.split(",")
                     if len(fields) < 3:
                         continue
+
                     state_e = float(fields[0])
-                    count = int(fields[1])
+                    if self.is_monte:
+                        count = int(fields[1])
+                    else:  # occ
+                        count = float(fields[1])
                     flipped = [int(c) for c in fields[2].split()]
                     for ic in flipped:
                         ir = self.iconf2ires[ic]
@@ -408,14 +429,19 @@ class MSout_np:
 
                     ms_vec.append([list(current_state), state_e, count])
 
-        self.N_mc_lines = lx - N_HDR   # ~ larger than actual mc data lines
-        print(f"Accepted states lines: {self.N_mc_lines:,}\n")
+        if self.is_monte:
+            self.N_mc_lines = lx - N_HDR - 4
+        else:
+            self.N_mc_lines = lx - N_HDR - 2
+        print(f"Accepted states lines: ~ {self.N_mc_lines:,}\n")
+
         if ms_vec:
             self.all_ms = np.array(ms_vec, dtype=object)
-            self.N_space = self.all_ms[:, -1].sum()
-            print(f"State space: {self.N_space:,}")
+            if self.is_monte:
+                self.N_space = self.all_ms[:, -1].sum()
+                print(f"State space: {self.N_space:,}")
             self.N_ms = len(self.all_ms)
-            print(f"conformer microstates loaded: {self.N_ms:,}\n")
+            print(f"Conformer microstates loaded: {self.N_ms:,}\n")
         else:
             return ValueError("Something went wrong in loading msout file: 'ms_vec' is empty!")
 
@@ -435,25 +461,45 @@ class MSout_np:
 
         msout_data = reader_gen(self.msout_file)
         for lx, line in enumerate(msout_data, start=1):
-            if lx < N_HDR:
+            if lx <= N_HDR:
                 continue
             line = line.strip()
             if not line or line[0] == "#":
                 continue
             else:
-                # find the next MC record, e.g. MC:4
-                if line.startswith("MC:"):
-                    found_mc = True
-                    newmc = True
-                    continue
+                if self.is_monte:
+                    # find the next MC record
+                    if line.startswith("MC:"):
+                        found_mc = True
+                        newmc = True
+                        continue
+                else:
+                    if line.startswith(tuple("0123456789")) and ":" in line:
+                        found_mc = True
+                        ro += 1  # will be 0 at 1st mc line (state)
+                        # line with candidate state for MC sampling, e.g.:
+                        # 41:0 3 16 29 41 52 54 68 70 73 ... # ^N: number of free iconfs in state
+                        current_state = [int(i) for i in line.split(":")[1].split()]
+
+                        # cms_vec :: [state, totE, averE, occ]
+                        cms_vec.append([[0] * len(self.cms_resids), 0, 0, 0])
+                        # update cms_vec state:
+                        curr_info = self.conf_info[current_state]
+
+                        # acceptable conformer: ionizable, free, and in res_kinds if provided, meaning
+                        # field 'resix' has a valid index (positive int) => resix != -1
+                        # [iconf, resid, in_kinds, is_ioniz, is_fixed, is_free, resix, crg]
+                        upd = curr_info[np.where(curr_info[:, -2] != -1)][:, -2:]  # -> [resix, crg]
+                        for u in upd:
+                            cms_vec[ro][0][u[0]] = u[1]
+                        newmc = False
+                        continue
 
                 if newmc:
                     ro += 1  # will be 0 at "MC:0" + 1 line
                     # line with candidate state for MC sampling, e.g.:
                     # 41:0 3 16 29 41 52 54 68 70 73 ... # ^N: number of free iconfs in state
-                    state_e = 0.0
                     current_state = [int(i) for i in line.split(":")[1].split()]
-
                     # cms_vec :: [state, totE, averE, count]
                     cms_vec.append([[0] * len(self.cms_resids), 0, 0, 0])
                     # update cms_vec state:
@@ -474,7 +520,10 @@ class MSout_np:
                         continue
 
                     state_e = float(fields[0])
-                    count = int(fields[1])
+                    if self.is_monte:
+                        count = int(fields[1])
+                    else:
+                        count = float(fields[1])
                     flipped = [int(c) for c in fields[2].split()]
                     for ic in flipped:
                         ir = self.iconf2ires[ic]
@@ -485,23 +534,40 @@ class MSout_np:
                     # Note: -1 is a sentinel index for this situation.
                     update_cms = np.all(self.conf_info[flipped, -2] == -1)
                     if update_cms:
-                        # cms_vec ::  [state, totE, averE, count]
-                        cms_vec[ro][1] += state_e * count
-                        cms_vec[ro][3] += count
-                        cms_vec[ro][2] = cms_vec[ro][1] / cms_vec[ro][3]
-                    else:
+                        if self.is_monte:
+                            # cms_vec ::  [state, totE, averE, count]
+                            cms_vec[ro][1] += state_e * count
+                            cms_vec[ro][3] += count
+                            cms_vec[ro][2] = cms_vec[ro][1] / cms_vec[ro][3]
+                        else:
+                            # cms_vec ::  [state, totE, np.nan, occ]
+                            cms_vec[ro][1] += state_e
+                            cms_vec[ro][2] = np.nan
+                            cms_vec[ro][3] += count
+
+                    else:  # new crg ms
                         ro += 1
-                        cms_vec.append([[0] * len(self.cms_resids), state_e * count, state_e, count])
+                        if self.is_monte:
+                            cms_vec.append([[0] * len(self.cms_resids), state_e * count, state_e, count])
+                        else:
+                            cms_vec.append([[0] * len(self.cms_resids), state_e, np.nan, count])
+                        # update cms_vec state:
                         curr_info = self.conf_info[current_state]
                         upd = curr_info[np.where(curr_info[:, -2] != -1)][:, -2:]  # -> [resix, crg]
                         for u in upd:
                             cms_vec[ro][0][u[0]] = u[1]
 
-        self.N_mc_lines = lx - N_HDR   # ~ larger than actual mc data lines
+        if self.is_monte:
+            self.N_mc_lines = lx - N_HDR - 4
+        else:
+            self.N_mc_lines = lx - N_HDR - 2
+        print(f"Accepted states lines: ~ {self.N_mc_lines:,}\n")
+
         if cms_vec:
             self.all_cms = np.array(cms_vec, dtype=object)
-            self.N_space = self.all_cms[:, -1].sum()
-            print(f"State space: {self.N_space:,}")
+            if self.is_monte:
+                self.N_space = self.all_cms[:, -1].sum()
+                print(f"State space: {self.N_space:,}")
             self.N_cms = len(self.all_cms)
             print(f"Protonation microstates: {self.N_cms:,}\n")
         else:
@@ -509,15 +575,17 @@ class MSout_np:
 
         return
 
-    def _load_all_reduced(self):
+    def load_all(self):
         """Process the 'msout file' mc lines to output both conformal
         and protonation microstates to numpy.arrays MSout_np.all_ms 
         and MSout_np.all_cms.
         """
         print("Loading ms and cms data into arrays.")
+
         found_mc = False
         newmc = False
         ro = -1  # list item accessor
+        current_state = []
         # lists to hold conf and crg ms info; they can be related by their common index;
         cms_vec = []
         ms_vec = []
@@ -525,23 +593,53 @@ class MSout_np:
         msout_data = reader_gen(self.msout_file)
         # start MUST be 1
         for lx, line in enumerate(msout_data, start=1):
-            if lx < N_HDR:
+            if lx <= N_HDR:
                 continue
             line = line.strip()
             if not line or line[0] == "#":
                 continue
             else:
-                # find the next MC record
-                if line.startswith("MC:"):
-                    found_mc = True
-                    newmc = True
-                    continue
+                if self.is_monte:
+                    # find the next MC record
+                    if line.startswith("MC:"):
+                        found_mc = True
+                        newmc = True
+                        continue
+                else:
+                    if line.startswith(tuple("0123456789")) and ":" in line:
+                        found_mc = True
+                        # newmc = True
+                        # current_state = [int(i) for i in line.split(":")[1].split()]
+                        # continue
 
+                        ro += 1  # will be 0 at 1st mc line (state)
+                        # line with candidate state for MC sampling, e.g.:
+                        # 41:0 3 16 29 41 52 54 68 70 73 ... # ^N: number of free iconfs in state
+                        current_state = [int(i) for i in line.split(":")[1].split()]
+
+                        # initialize the vectors:
+                        ms_vec.append([ro, list(current_state), 0, 0])
+                        #  cms_vec ::  [idx, state, totE, averE, count]
+                        cms_vec.append([ro, [0] * len(self.cms_resids), 0, 0, 0])
+
+                        # update cms_vec state:
+                        curr_info = self.conf_info[current_state]
+                        # acceptable conformer: ionizable, free, and in res_kinds if provided, meaning
+                        # field 'resix' has a valid index (positive int) => resix != -1
+                        # [iconf, resid, in_kinds, is_ioniz, is_fixed, is_free, resix, crg]
+                        upd = curr_info[np.where(curr_info[:, -2] != -1)][:, -2:]  # -> [resix, crg]
+                        for u in upd:
+                            cms_vec[ro][1][u[0]] = u[1]
+                        newmc = False
+                        continue
+                
                 if newmc:
-                    # line with candidate state for MC sampling, e.g.:
-                    # 41:0 3 16 29 41 52 54 68 70 73 ... # ^N: number of free iconfs in state
                     ro += 1  # will be 0 at "MC:0" + 1 line
+                    #if not current_state:
                     current_state = [int(i) for i in line.split(":")[1].split()]
+
+                    # initialize the vectors:
+                    ms_vec.append([ro, list(current_state), 0, 0])
 
                     # cms_vec ::  [idx, state, totE, averE, count]
                     cms_vec.append([ro, [0] * len(self.cms_resids), 0, 0, 0])
@@ -550,9 +648,6 @@ class MSout_np:
                     upd = curr_info[np.where(curr_info[:, -2] != -1)][:, -2:]  # -> [resix, crg]
                     for u in upd:
                         cms_vec[ro][1][u[0]] = u[1]
-                    # initial ms_vec:
-                    ms_vec.append([ro, list(current_state), 0, 0])
-
                     newmc = False
                     continue
 
@@ -561,39 +656,67 @@ class MSout_np:
                     if len(fields) < 3:
                         continue
                     state_e = float(fields[0])
-                    count = int(fields[1])
+                    if self.is_monte:
+                        count = int(fields[1])
+                    else:
+                        count = float(fields[1])
                     flipped = [int(c) for c in fields[2].split()]
                     for ic in flipped:
                         ir = self.iconf2ires[ic]
                         current_state[ir] = ic
 
-                    if ro == 0:  # update initial
-                        ms_vec[0][2] += state_e
-                        ms_vec[0][3] += count
+                    if ro == 0:
+                        #ms_vec.append([ro, list(current_state), state_e, count])
+                        # update the 1st ms:
+                        ms_vec[0][2] = state_e
+                        ms_vec[0][3] = count
+                    #else:
+                    if not self.reduced_ms_rows:
+                        # save all conformer ms:
+                        ms_vec.append([ro, list(current_state), state_e, count])
 
                     # if the flipped iconfs are from non-ionizable or fixed res,
                     # the protonation state is the same: increment count & E;
                     # Note: -1 is a sentinel index for this situation.
                     update_cms = np.all(self.conf_info[flipped, -2] == -1)
                     if update_cms:
-                        # cms_vec ::  [idx, state, totE, averE, count]
-                        cms_vec[ro][2] += state_e * count
-                        cms_vec[ro][4] += count
-                        cms_vec[ro][3] = cms_vec[ro][2] / cms_vec[ro][4]
+                        if self.is_monte:
+                            # cms_vec ::  [idx, state, totE, averE, count]
+                            cms_vec[ro][2] += state_e * count
+                            cms_vec[ro][4] += count
+                            cms_vec[ro][3] = cms_vec[ro][2] / cms_vec[ro][4]
+                        else:
+                            # cms_vec ::  [idx, state, totE, np.nan, occ]
+                            cms_vec[ro][2] += state_e
+                            cms_vec[ro][3] = np.nan
+                            cms_vec[ro][4] += count
                     else:
                         ro += 1  # new cms
-                        # save new ms
-                        ms_vec.append([ro, list(current_state), state_e, count])
+                        if self.reduced_ms_rows:
+                            # save the 'associated' conformer ms:
+                            ms_vec.append([ro, list(current_state), state_e, count])
                         # save new cms, create new list item & update with data from
                         # lookup array for the current state
-                        cms_vec.append([ro, [0] * len(self.cms_resids), state_e * count, state_e, count])
+                        if self.is_monte:
+                            cms_vec.append([ro,
+                                            [0] * len(self.cms_resids),
+                                            state_e * count, state_e, count])
+                        else:
+                            cms_vec.append([ro,
+                                            [0] * len(self.cms_resids),
+                                            state_e, np.nan, count])
+                        # update cms_vec state:
                         curr_info = self.conf_info[current_state]
                         upd = curr_info[np.where(curr_info[:, -2] != -1)][:, -2:]  # -> [resix, crg]
                         for u in upd:
                             cms_vec[ro][1][u[0]] = u[1]
 
-        self.N_mc_lines = lx - N_HDR   # ~ larger than actual mc data lines
-        print(f"Accepted states lines: {self.N_mc_lines:,}\n")
+        if self.is_monte:
+            self.N_mc_lines = lx - N_HDR - 4
+        else:
+            self.N_mc_lines = lx - N_HDR - 2
+        print(f"Accepted states lines: ~ {self.N_mc_lines:,}\n")
+
         if ms_vec:
             self.all_ms = np.array(ms_vec, dtype=object)
             self.N_ms = len(self.all_ms)
@@ -605,118 +728,14 @@ class MSout_np:
             self.all_cms = np.array(cms_vec, dtype=object)
             self.N_cms = len(self.all_cms)
             print(f"Protonation microstates found: {self.N_cms:,}\n")
-            self.N_space = self.all_cms[:, -1].sum()
-            print(f"State space: {self.N_space:,}")
+            if self.is_monte:
+                self.N_space = self.all_cms[:, -1].sum()
+                print(f"State space: {self.N_space:,}")
         else:
             return ValueError("Something went wrong in loading msout file: 'cms_vec' is empty!")
 
         return
 
-    def _load_all(self):
-        """Process the 'msout file' mc lines to output both conformal
-        and protonation microstates to numpy.arrays MSout_np.all_ms 
-        and MSout_np.all_cms.
-        """
-        print("Loading ms and cms data into arrays; fn: _load_all.")
-        found_mc = False
-        newmc = False
-        ro = -1  # list item accessor
-        # lists to hold conf and crg ms info; they can be related by their common index;
-        cms_vec = []
-        ms_vec = []
-
-        msout_data = reader_gen(self.msout_file)
-        for lx, line in enumerate(msout_data, start=1):
-            if lx < N_HDR:
-                continue
-            line = line.strip()
-            if not line or line[0] == "#":
-                continue
-            else:
-                # find the next MC record
-                if line.startswith("MC:"):
-                    found_mc = True
-                    newmc = True
-                    continue
-
-                if newmc:
-                    # line with candidate state for MC sampling, e.g.:
-                    # 41:0 3 16 29 41 52 54 68 70 73 ... # ^N: number of free iconfs in state
-                    state_e = 0.0
-                    ro += 1  # will be 0 at "MC:0" + 1 line
-                    current_state = [int(i) for i in line.split(":")[1].split()]
-
-                    # cms_vec ::  [idx, state, totE, averE, count]
-                    cms_vec.append([ro, [0] * len(self.cms_resids), 0, 0, 0])
-                    # update cms_vec state:
-                    curr_info = self.conf_info[current_state]
-                    upd = curr_info[np.where(curr_info[:, -2] != -1)][:, -2:]  # -> [resix, crg]
-                    for u in upd:
-                        cms_vec[ro][1][u[0]] = u[1]
-                    newmc = False
-                    continue
-
-                if found_mc:
-                    fields = line.split(",")
-                    if len(fields) < 3:
-                        continue
-
-                    state_e = float(fields[0])
-                    count = int(fields[1])
-                    flipped = [int(c) for c in fields[2].split()]
-                    for ic in flipped:
-                        ir = self.iconf2ires[ic]
-                        current_state[ir] = ic
-
-                    ms_vec.append([ro, list(current_state), state_e, count])
-
-                    # if the flipped iconfs are from non-ionizable or fixed res,
-                    # the protonation state is the same: increment count & E;
-                    # Note: -1 is a sentinel index for this situation.
-                    update_cms = np.all(self.conf_info[flipped, -2] == -1)
-                    if update_cms:
-                        # cms_vec ::  [idx, state, totE, averE, count]
-                        cms_vec[ro][2] += state_e * count
-                        cms_vec[ro][4] += count
-                        cms_vec[ro][3] = cms_vec[ro][2] / cms_vec[ro][4]
-                    else:
-                        ro += 1  # new cms
-                        cms_vec.append([ro, [0] * len(self.cms_resids), state_e * count, state_e, count])
-                        curr_info = self.conf_info[current_state]
-                        upd = curr_info[np.where(curr_info[:, -2] != -1)][:, -2:]  # -> [resix, crg]
-                        for u in upd:
-                            cms_vec[ro][1][u[0]] = u[1]
-
-        self.N_mc_lines = lx - N_HDR   # ~ larger than actual mc data lines
-        print(f"Accepted states lines: {self.N_mc_lines:,}\n")
-        if ms_vec:
-            self.all_ms = np.array(ms_vec, dtype=object)
-            self.N_ms = len(self.all_ms)
-            print(f"Conformer microstates loaded: {self.N_ms:,}\n")
-        else:
-            return ValueError("Something went wrong in loading msout file: 'ms_vec' is empty!")
-        
-        if cms_vec:
-            self.all_cms = np.array(cms_vec, dtype=object)
-            self.N_cms = len(self.all_cms)
-            print(f"Protonation microstates: {self.N_cms:,}\n")
-            self.N_space = self.all_cms[:, -1].sum()
-            print(f"State space: {self.N_space:,}")
-        else:
-            return ValueError("Something went wrong in loading msout file: 'cms_vec' is empty!")
-
-        return
-
-    def load_all(self):
-        """Wrapper function for switching load_all fn depending on reduced_ms_rows.
-        """
-        if self.reduced_ms_rows:
-            self._load_all_reduced()
-        else:
-            self._load_all()
-
-        return
-    
     def get_uniq_ms(self):
         """Semaphore function to call the 'get unique' function corresponding
         to .mc_load loading mode.
@@ -750,61 +769,99 @@ class MSout_np:
         return
 
     def _get_uniq_cms(self):
-        """Assign unique crg ms info (state, totE, averE, count) to self.uniq_cms;
-        Assign count of unique cms to self.N_cms_uniq.
+        """Assign unique crg ms info to self.uniq_cms and assign count of unique ms to self.N_cms_uniq.
+        The values of MSout.uniq_cms, the populated array, depend on the msout method:
+          - [state, totE, averE, occ, count] if MONTERUNS
+          - [state, totE, np.nan, occ, np.nan] if ENUMERATE
         """
         subtot_d = {}
-        # crg_e ::  [state, totE, averE, count]
-        for ix, itm in enumerate(self.all_cms):
-            key = tuple(itm[0])
-            if key in subtot_d:
-                subtot_d[key][1] += itm[1]
-                subtot_d[key][3] += itm[3]
-                subtot_d[key][2] = subtot_d[key][1] / subtot_d[key][3]
-            else:
-                subtot_d[key] = itm.copy()
+        if self.is_monte:
+            # crg_ms in :: [state, totE, averE, count]
+            for _, itm in enumerate(self.all_cms):
+                key = tuple(itm[0])
+                if key in subtot_d:
+                    subtot_d[key][1] += itm[1]
+                    subtot_d[key][3] += itm[3]
+                    subtot_d[key][2] = subtot_d[key][1] / subtot_d[key][3]
+                else:
+                    subtot_d[key] = itm.copy()
 
-        self.N_cms_uniq = len(subtot_d)
-        # add occ, sort by count & assign to self.uniq_cms as np.array:
-        # crg_e ::  [state, totE, averE, occ, count]
-        self.uniq_cms = np.array(
-            sorted(
+            self.N_cms_uniq = len(subtot_d)
+            # add occ, sort by count & assign to self.uniq_cms as np.array:
+            # crg_ms out :: [state, totE, averE, occ, count]
+            self.uniq_cms = np.array(
+                sorted(
                 [
                     [list(k), subtot_d[k][1], subtot_d[k][2], subtot_d[k][3] / self.N_space, subtot_d[k][3]]
                     for k in subtot_d
                 ],
                 key=lambda x: x[-1],
                 reverse=True,
-            ),
-            dtype=object,
-        )
+            ), dtype=object)
+        else:
+            # cms in :: [state, totE, np.nan, occ]
+            for _, itm in enumerate(self.all_cms):
+                key = tuple(itm[0])
+                if key in subtot_d:
+                    subtot_d[key][1] += itm[1]
+                    subtot_d[key][2] = np.nan
+                    subtot_d[key][3] += itm[3]
+                else:
+                    subtot_d[key] = itm.copy()
+
+            self.N_cms_uniq = len(subtot_d)
+
+            # cms out :: [state, totE, np.nan, occ, np.nan]  to keep same shape
+            # sort by occ:
+            self.uniq_cms = np.array(
+                sorted(
+                    [
+                    [list(k), subtot_d[k][1], subtot_d[k][2], subtot_d[k][3], np.nan]
+                    for k in subtot_d
+                    ],
+                    key=lambda x: x[-2], reverse=True), dtype=object)
 
         return
 
     def _get_uniq_conf(self):
-        """Assign unique conf ms info (state, stateE, occ, count) to self.uniq_ms;
-        Assign count of unique ms to self.N_ms_uniq.
+        """Assign unique conf ms info to self.uniq_ms and assign count of unique ms to self.N_ms_uniq.
+        The values of MSout.uniq_ms, the populated array, depend on the msout method:
+          - [state, state.e, occ, count] if MONTERUNS
+          - [state, state.e, occ, np.nan] if ENUMERATE
         """
         if self.mc_load != "conf":
-            print("WARNING: Redirecting to 'get_uniq_all_ms' function as per 'mc_load'.")
-            self.get_uniq_all_ms()
-            return
-        # ms in ::  [state, state.e, count]
-        subtot_d = {}
-        for _, itm in enumerate(self.all_ms):
-            key = tuple(itm[0])
-            if key in subtot_d:
-                subtot_d[key][2] += itm[2]
-            else:
-                subtot_d[key] = itm.copy()
+            sys.exit("CRITICAL: Wrong call to '_get_uniq_conf': 'mc_load' must be 'conf'.")
 
-        self.N_ms_uniq = len(subtot_d)
-        # add occ, sort by count & assign to self.uniq_ms as np.array:
-        # ms out ::  [state, state.e, occ, count]
-        mslist = [
-            [list(k), subtot_d[k][1], subtot_d[k][-1] / self.N_space, subtot_d[k][-1]] for k in subtot_d
-        ]
-        self.uniq_ms = np.array(sorted(mslist, key=lambda x: x[-1], reverse=True), dtype=object)
+        if self.is_monte:
+            # ms in ::  [state, state.e, count]
+            # use dict to get unique states
+            subtot_d = {}
+            for _, itm in enumerate(self.all_ms):
+                key = tuple(itm[0])
+                if key in subtot_d:
+                    subtot_d[key][2] += itm[2]
+                else:
+                    subtot_d[key] = itm.copy()
+
+            self.N_ms_uniq = len(subtot_d)
+        
+            # add occ, sort by count & assign to self.uniq_ms as np.array:
+            # ms out ::  [state, state.e, occ, count]
+            mslist = [
+                [list(k), subtot_d[k][1], subtot_d[k][-1] / self.N_space, subtot_d[k][-1]]
+                 for k in subtot_d
+                 ]
+            # sort by count:
+            self.uniq_ms = np.array(sorted(mslist, key=lambda x: x[-1], reverse=True), dtype=object)
+        else:
+            # ENUMERATE :: ANALYTICAL SOLUTION => all unique despite occ precision problem, see
+            #              https://github.com/GunnerLab/MCCE4-Tools/issues/22
+            self.N_ms_uniq = len(self.all_ms)
+            # ms in  :: [state, state.e, occ]
+            # ms out :: [state, state.e, occ, np.nan]  to keep same shape
+            # sort by occ:
+            self.uniq_ms = np.array(sorted([[ms[0], ms[1], ms[2], np.nan] for ms in self.all_ms],
+                                           key=lambda x: x[-2], reverse=True), dtype=object)
 
         return
 
@@ -816,42 +873,77 @@ class MSout_np:
         """
         print("Getting unique cms array.")
         subtot_d = {}
-        # vec :: [idx, state, totE, averE, count]
-        for ix, itm in enumerate(self.all_cms):
-            key = tuple(itm[1])
-            if key in subtot_d:
-                subtot_d[key][2] += itm[2]
-                subtot_d[key][4] += itm[4]
-                subtot_d[key][3] = subtot_d[key][2] / subtot_d[key][4]
-            else:
-                subtot_d[key] = itm.copy()
+        if self.is_monte:
+            # vec :: [idx, state, totE, averE, count]
+            for _, itm in enumerate(self.all_cms):
+                key = tuple(itm[1])
+                if key in subtot_d:
+                    subtot_d[key][2] += itm[2]
+                    subtot_d[key][4] += itm[4]
+                    subtot_d[key][3] = subtot_d[key][2] / subtot_d[key][4]
+                else:
+                    subtot_d[key] = itm.copy()
 
-        self.N_cms_uniq = len(subtot_d)
-        # add occ, sort by count & assign to self.uniq_cms as np.array:
-        # crg ms ::  [idx, state, totE, averE, occ, count]
-        self.uniq_cms = np.array(
-            sorted(
-                [
+            self.N_cms_uniq = len(subtot_d)
+            # add occ, sort by count & assign to self.uniq_cms as np.array:
+            # crg ms ::  [idx, state, totE, averE, occ, count]
+            # sort by count
+            self.uniq_cms = np.array(
+                sorted(
                     [
-                        subtot_d[k][0],
-                        list(k),
-                        subtot_d[k][2],
-                        subtot_d[k][3],
-                        subtot_d[k][4] / self.N_space,
-                        subtot_d[k][4],
-                    ]
-                    for k in subtot_d
-                ],
-                key=lambda x: x[-1],
-                reverse=True,
-            ),
-            dtype=object,
-        )
+                        [
+                            subtot_d[k][0],
+                            list(k),
+                            subtot_d[k][2],
+                            subtot_d[k][3],
+                            subtot_d[k][4] / self.N_space,
+                            subtot_d[k][4],
+                        ]
+                        for k in subtot_d
+                    ],
+                    key=lambda x: x[-1],
+                    reverse=True,
+                ),
+                dtype=object,
+            )
+        else:
+            # cms in  :: [idx, state, totE, np.nan, occ]
+            for _, itm in enumerate(self.all_cms):
+                key = tuple(itm[1])
+                if key in subtot_d:
+                    subtot_d[key][2] += itm[2]
+                    subtot_d[key][3] = np.nan
+                    subtot_d[key][4] += itm[4]
+                else:
+                    subtot_d[key] = itm.copy()
+            self.N_cms_uniq = len(subtot_d)
 
+            # cms out :: [id, state, totE, np.nan, occ, np.nan]  to keep same shape
+            # sort by occ:
+            self.uniq_cms = np.array(
+                sorted(
+                    [
+                    [subtot_d[k][0], list(k), subtot_d[k][1], subtot_d[k][2], subtot_d[k][3], np.nan]
+                    for k in subtot_d
+                    ],
+                    key=lambda x: x[-2], reverse=True), dtype=object)
         return
 
     def _get_uniq_all_ms(self):
         print("Getting unique ms array.")
+        if self.method == "ENUMERATE":
+            #print("The conformer microstates returned by the analytical method are unique.")
+            self.N_ms_uniq = len(self.all_ms)
+            # ms out :: [id, state, state.e, occ, np.nan]
+            # sort by occ:
+            self.uniq_ms = np.array(
+                sorted([[ms[0], ms[1], ms[2], np.nan] for ms in self.all_ms],
+                       key=lambda x: x[-2], reverse=True
+                       ),
+                    dtype=object
+                    )
+            return
+            
         # ms in ::  [idx, state, state.e, count]
         subtot_d = {}
         for _, itm in enumerate(self.all_ms):
@@ -933,12 +1025,13 @@ class MSout_np:
     def how_many_ms_to_ooc_pct(self, occ_pct: list=[50, 90]) -> int:
         """
         WIP
-        Return howm many (c)ms are ned to reach an occ of 50%, 90%, etc.
+        Return how many (c)ms are ned to reach an occ of 50%, 90%, etc.
         """
         print("Checking occ drop.")
         # determine which topn data to return as per mc_load:
         which_top = {"conf":1, "crg":2, "all":3}
         process_top = which_top[self.mc_load]
+
         pass
 
     def get_topN_data(self, N: int=None, min_occ: float = MIN_OCC,
@@ -1229,9 +1322,12 @@ class MSout_np:
             return self._free_res_aver_crg_df_from_all_cms()
 
     def __str__(self):
-        return (f"Conformers: {self.N_confs:,}\n"
-                f"Conformational state space: {self.N_space:,}\n"
+        out = (f"Conformers: {self.N_confs:,}\n"
                 f"Free residues: {len(self.free_residues):,}\n"
                 f"Fixed residues: {len(self.fixed_iconfs):,}\n"
                 f"Background charge: {self.background_crg:.0f}\n"
                 )
+        if self.is_monte:
+            out = out +f"State space: {self.N_space:,}\n"
+
+        return out
