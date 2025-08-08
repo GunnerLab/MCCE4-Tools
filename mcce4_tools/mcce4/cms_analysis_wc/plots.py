@@ -33,21 +33,35 @@ def energy_distribution(
     input_arr: np.ndarray,
     out_dir: Path,
     kind: str,
+    mc_method: str = "MONTERUNS",
     save_name: str = "enthalpy_dist.png",
     show: bool = False,
     fig_size=(7,7),
 ):
     """
-    Plot the histogram and distribution fit of the conformer microstates energies.
+    Plot the histogram and distribution fit of the conformer or charge microstates energies.
     Arguments:
       - input_arr (np.ndarray): Array of conformer or charge microstates data returned by MSout_np.
       - kind (str): Input array ms kind, either 'ms' (conformer ms) or 'cms' (charge microstates)
     """
-    if kind.lower() not in ("ms", "cms"):
+    kind = kind.lower()
+    if kind not in ("ms", "cms"):
         raise ValueError("Argument 'kind' must be either 'ms' or 'cms'.")
-    kind_lbl = "Conformer" if kind.lower() == "ms" else "Charge"
+    kind_lbl = "Conformer" if kind == "ms" else "Charge"
 
-    energies = np.array(sorted(input_arr[:, -2]), dtype=float)
+    if mc_method == "MONTERUNS":
+        if kind == "cms":
+            # sort by average energy
+            energies = np.array(sorted(input_arr[:, -2]), dtype=float)
+        else:
+            energies = np.array(sorted(input_arr[:, -1]), dtype=float)
+    else:
+        if kind == "cms":
+            # sort by energy
+            energies = np.array(sorted(input_arr[:, -3]), dtype=float)
+        else:
+            energies = np.array(sorted(input_arr[:, -2]), dtype=float)
+
     skewness, mean, std = skewnorm.fit(energies)
     y = skewnorm.pdf(energies, skewness, mean, std)
 
