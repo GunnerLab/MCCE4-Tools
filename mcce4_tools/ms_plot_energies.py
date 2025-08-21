@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-Module: ms_sampled_ms_to_pdbs.py
+Module: ms_plot_energies.py
 
 Plot the microstate energies from microstates PDB files created with `ms_sampled_ms_to_pdbs.py`.
 
@@ -8,14 +8,14 @@ Created on Apr 01 09:00:00 2025
 
 @author: Gehan Ranepura
 """
-import os
-import re
-import numpy as np
-import matplotlib.pyplot as plt
-from scipy.stats import skewnorm
 import argparse
-from pathlib import Path
 import logging
+from pathlib import Path
+import re
+
+import matplotlib.pyplot as plt
+import numpy as np
+from scipy.stats import skewnorm
 
 
 # Set up logging
@@ -31,16 +31,14 @@ def parse_microstate_energies(pdb_dir: Path):
     energies = []
     pdb_count = 0  # To count the number of PDB files processed
 
-    for filename in os.listdir(pdb_dir):
-        if filename.endswith(".pdb"):  # Process only PDB files
-            pdb_count += 1
-            filepath = pdb_dir / filename
-            with open(filepath, "r") as file:
-                for line in file:
-                    match = energy_pattern.search(line)
-                    if match:
-                        energies.append(float(match.group(1)))
-                        break  # Stop after finding the first energy in the file
+    for pdb in Path(pdb_dir).glob("*.pdb"):
+        pdb_count += 1
+        with open(pdb) as file:
+            for line in file:
+                match = energy_pattern.search(line)
+                if match:
+                    energies.append(float(match.group(1)))
+                    break  # Stop after finding the first energy in the file
 
     return np.array(energies), pdb_count
 

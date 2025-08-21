@@ -11,7 +11,7 @@ This repo is not yet published, so the "installation" is a process with these st
    git clone https://github.com/GunnerLab/MCCE4-Tools.git
   ```
 
- 3. Add the clone's path to your `.bashrc` (`.zshrc`) file and save it, then "dot" or source the file:
+ 3. Add the clone's path to your `.bashrc` (`.bash_profile`) file and save it, then "dot" or source the file:
  ```
   # add MCCE4-Tools clone to the system path:
   export PATH="/[REPLACE_WITH_YOUR_DIRPATH_FROM_STEP_1]/MCCE4-Tools/mcce4_tools:$PATH"
