@@ -3,9 +3,7 @@
 Module: cif2pdb_PyMOL
 Created on Aug 19 19:20:00 2025
 @author: Gehan Ranepura and Raihan Uddin
-"""
 
-"""
 Convert CIF files to PDB format using PyMOL.
 
 Usage:
@@ -29,22 +27,26 @@ Optional flags:
 Background:
     When loading some CIF files, PyMOL may encounter non-standard residues/ligands
     (e.g., "UNK"). To interpret them correctly, PyMOL sometimes fetches their
-    definitions from the RCSB ligand dictionary. That’s why you might see:
+    definitions from the RCSB ligand dictionary. That's why you might see:
         Downloading https://files.rcsb.org/ligands/download/UNK.cif
         -> ./UNK.cif
     This is normal and does not affect the conversion; it just helps PyMOL parse the
     structure more accurately. Use --offline or a --ligand-cache to control this.
 """
-
 import argparse
 import os
 import sys
 import tempfile
 import shutil
-from pymol import cmd, finish_launching
+try:
+    from pymol import cmd, finish_launching
+except ImportError:
+    sys.exit("Please, visit https://pymol.org/conda/ to install PyMOL on your system.")
+
 
 def list_nonpolymer_ligands(obj_name="molecule"):
-    """Return sorted set of ligand 3-letter codes present (HETATM, excluding HOH)."""
+    """Return sorted set of ligand 3-letter codes present (HETATM, excluding HOH).
+    """
     resnames = set()
     model = cmd.get_model(f"(hetatm and not resn HOH) and model {obj_name}")
     for a in model.atom:
@@ -52,8 +54,10 @@ def list_nonpolymer_ligands(obj_name="molecule"):
             resnames.add(a.resn.upper())
     return sorted(resnames)
 
+
 def snapshot_cif_files(directory):
-    """Return a set of *.cif basenames currently in directory (uppercase sans extension)."""
+    """Return a set of *.cif basenames currently in directory (uppercase sans extension).
+    """
     out = set()
     if directory and os.path.isdir(directory):
         for fn in os.listdir(directory):
@@ -61,6 +65,7 @@ def snapshot_cif_files(directory):
                 code = os.path.splitext(fn)[0].upper()
                 out.add((code, os.path.abspath(os.path.join(directory, fn))))
     return out
+
 
 def main():
     parser = argparse.ArgumentParser(
@@ -116,47 +121,41 @@ def main():
     # This is where PyMOL itself may print "Downloading ..." lines
     cmd.load(input_file, "molecule")
 
-    print()  # blank line for readability
-
     ligands_present = list_nonpolymer_ligands("molecule")
     if ligands_present:
-        print("🔎 Non-polymer ligands present in structure (excluding water):")
+        print("\n🔎 Non-polymer ligands present in structure (excluding water):")
         print("   " + ", ".join(ligands_present))
     else:
-        print("🔎 No non-polymer ligands (excluding water) detected.")
-
-    print()  # blank line for readability
+        print("\n🔎 No non-polymer ligands (excluding water) detected.")
 
     after = snapshot_cif_files(fetch_dir) if fetch_dir else set()
     new_files = {code: path for (code, path) in after - before}
 
     if args.offline:
-        print("🌐 Offline mode: network fetching disabled.")
+        print("\n🌐 Offline mode: network fetching disabled.")
         if new_files:
             print("⚠️  Unexpected: ligand files appeared despite --offline:")
             for code, path in sorted(new_files.items()):
                 print(f"   - {code} -> {path}")
     else:
         if new_files:
-            print("⬇️  Detected ligand definitions fetched during load:")
+            print("\n⬇️  Detected ligand definitions fetched during load:")
             for code in sorted(new_files):
                 print(f"   - {code} -> {new_files[code]}")
         else:
             print("✅ No new ligand definitions were fetched during this conversion.")
 
-    print()  # blank line for readability
-
     cmd.save(output_file, "molecule")
-    print(f"✅ Converted {input_file} -> {output_file}")
-
+    print(f"\n✅ Converted {input_file} -> {output_file}")
+    cmd.quit()
     if created_temp_cache and fetch_dir and os.path.isdir(fetch_dir):
         try:
             shutil.rmtree(fetch_dir)
         except Exception:
             pass
 
-    cmd.quit()
+    return
+
 
 if __name__ == "__main__":
     main()
-
