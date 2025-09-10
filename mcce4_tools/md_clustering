@@ -1,4 +1,5 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
+
 """
 Tool file:  md_clustering
 
@@ -11,4 +12,3 @@ from mcce4.md_clustering import cli
 
 if __name__ == "__main__":
     sys.exit(cli())
-

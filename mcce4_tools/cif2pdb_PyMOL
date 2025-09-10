@@ -1,4 +1,5 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
+
 """
 Module: cif2pdb_PyMOL
 Created on Aug 19 19:20:00 2025
@@ -38,6 +39,8 @@ import os
 import sys
 import tempfile
 import shutil
+
+
 try:
     from pymol import cmd, finish_launching
 except ImportError:

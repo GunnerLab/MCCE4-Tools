@@ -14,6 +14,9 @@ filesdiff         :: Obtain the column difference between two mcce files, or dif
                       all_pK.out, all_sum_crg.out, entropy.out, fort.38, head3.lst, pK.out,
                       residues_stats.txt, sum_crg.out, vdw0.lst.
 
+get_aver_pqr      :: Obtain an occupancy-weigthed charge on the most occupied conformers in fort.38 together with step2_out.pdb data.
+                     Minimal usage: get_aver_pqr
+
 getpdb            :: Download one or more (bioassembly) pdb files from the RSCB Protein Data Bank.
 
 md_clustering     :: Given a topology file and one or more trajectories, save the pdbs of the

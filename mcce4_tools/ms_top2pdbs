@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 """
 Tool file: ms_top2pdbs
@@ -15,7 +15,6 @@ Examples:
   Passing residues kinds: comma-separated; order & case insensitive:
     > ms_top2pdbs -residue_kinds _CL,his,GLU
 """
-
 import sys
 from mcce4.topn_cms_to_pdbs import cli
 
