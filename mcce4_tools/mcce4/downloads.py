@@ -9,10 +9,7 @@ import logging
 from pathlib import Path
 import requests
 import shutil
-import subprocess
 from typing import Tuple, Union
-
-from mcce4.io_utils import subprocess_run
 
 
 logging.basicConfig(format="[ %(levelname)s ] - %(message)s")
