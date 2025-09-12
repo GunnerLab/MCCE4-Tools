@@ -1,5 +1,4 @@
-#!/usr/bin/env python3
-
+#!/usr/bin/env python
 """
 Module: downloads.py
 
@@ -13,10 +12,10 @@ import shutil
 import subprocess
 from typing import Tuple, Union
 
-from mcce4.io_utils import subprocess_run, CalledProcessError, CompletedProcess
+from mcce4.io_utils import subprocess_run
 
 
-logging.basicConfig(format="[ %(levelname)s ] %(name)s - %(funcName)s:\n  %(message)s")
+logging.basicConfig(format="[ %(levelname)s ] - %(message)s")
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
@@ -31,38 +30,60 @@ def rcsb_download(pdb_fname: str) -> requests.Response:
     return requests.get(url_rscb, allow_redirects=True)
 
 
-def rcsb_download_header(pdb_fname: str) -> requests.Response:
-    url_rscb = "https://files.rcsb.org/header/" + pdb_fname
-    return requests.get(url_rscb, allow_redirects=True,
-                        headers = {"accept-encoding": "identity"})
+# def rcsb_download_header0(pdb_fname: str) -> requests.Response:
+#     """OBSOLETE: the entire file will be downloaded."""
+#     url_rscb = "https://files.rcsb.org/header/" + pdb_fname
+#     return requests.get(url_rscb, allow_redirects=False,
+#                         headers = {"accept-encoding": "identity"})
 
 
-def get_rcsb_pdb(pdbid: str, keep_bioassembly: bool = False) -> Union[Path, Tuple[None, str]]:
-    """Given a pdb id, download the pdb file containing
-    the biological assembly from rcsb.org.
-    The file is downloaded with a pdb extension.
+def get_rcsb_pdb(pdbid: str,
+                 get_bioassembly: bool = True,
+                 bioassembly_id: int=1,
+                 keep_bioassembly: bool = False) -> Union[Path, Tuple[None, str]]:
+    """Given a pdb id, possibly download the pdb file containing the biological
+    assembly with given bioassembly_id from rcsb.org. If get_bioassembly is False or
+    the download of the bioassembly download fails, then the download of the standard
+    pdb file is attempted.
 
-    Removed cif file download as this format cannot yet be used.
+    Arguments:
+     - pdbid (str): The pdb id to download
+     - get_bioassembly (bool, True): Whether to attempt the bioassembly or the full pdb download
+     - bioassembly_id (int, 1): Which bioassembly to download if get_bioassembly is True.
+     - keep_bioassembly (bool, False): Whether to retain the downloaded bioassembly file.
+
+    Returns:
+     - The path to the downloaded pdb file or a tuple signifying and error occured with values
+       (None, error_message)
     """
     pdbid = pdbid.lower()
     pdb = pdbid + ".pdb"  # final pdb filename
-    pdb1 = pdbid + ".pdb1"
+    if not get_bioassembly:
+        # get the standard, full pdb:
+        r0 = rcsb_download(pdb)
+        if r1.status_code < 400:
+            which_ba[0] = True
+            with open(pdb, "wb") as fo:
+                fo.write(r0.content)
+        else:
+            logger.warning(f"Could not download the standard, full pdb: {r0.reason}.")
+            return None, "Error: Could not download the standard, full pdb: {r0.reason}."
 
-    # The bioassembly and header are downloaded because the bioassembly file
-    # will not have the complete remarks section, which mcce4.pdbio.py parses.
+        return Path(pdb).resolve()
 
+    biopdb = pdbid + f".pdb{bioassembly_id}"
     # list of bool to identify which pdb was saved:
     which_ba = [False, False]  # 0:  bio assembly, 1: pdb standard
 
     # try bio assembly:
-    r1 = rcsb_download(pdb1)
+    r1 = rcsb_download(biopdb)
     if r1.status_code < 400:
         which_ba[0] = True
-        with open(pdb1, "wb") as fo:
+        with open(biopdb, "wb") as fo:
             fo.write(r1.content)
     else:
-        logger.warning(f"Could not download the bio assembly: {r1.reason}")
-    
+        logger.warning(f"Could not download bio assembly {biopdb!r}: {r1.reason}. Trying standard pdb.")
+
     if not which_ba[0]:
         # try standard pdb format:
         r2 = rcsb_download(pdb)
@@ -77,66 +98,60 @@ def get_rcsb_pdb(pdbid: str, keep_bioassembly: bool = False) -> Union[Path, Tupl
             logger.error("Could neither download the bio assembly or standard pdb file.")
             return None, "Error: Could neither download the bio assembly or pdb file."
     else:
-        # get the full header to use for the bioassembly file
-        r2 = rcsb_download_header(pdb)
-        if r2.status_code < 400:
-            with open(pdb, "w") as fo:
-                fo.write(r2.text)
-        else:
-            logger.warning(f"Could not download the full pdb file header: bioassembly with partial header used: {r2.reason}")
-            # use bioassembly as pdb file:
-            shutil.move(pdb1, pdb)
-            return Path(pdb).resolve()
-
-        # check if header has a MODEL line, if not add it:
-        missing_model_line_added = False
-        MDL = "MODEL        1"
-        cmd = f"grep '^{MDL}' {pdb}"
-        try:
-            o = subprocess_run(cmd, capture_output = True, check = True)
-            if not o.stdout:  # no MODEL line, add it
-                cmd = f"sed -i '$a\\{MDL}' {pdb}"
-                o = subprocess_run(cmd, capture_output = True, check = True)
-                if isinstance(o, CompletedProcess):
-                    missing_model_line_added = True
-                else:
-                    logger.info(f"Failed adding missing MODEL line in {pdb}.")
-        except CalledProcessError as e:
-            logger.error(f"Failed check on MODEL line; exit code {e.returncode}: {e.stderr}")
-
-        # append model coordinate lines to the header file:
-        cmd = "egrep '^ATOM|^HETATM' " + pdb1 + " >> " + pdb
-        if missing_model_line_added:
-            # need "ENDMDL" as well:
-            cmd = cmd + "; echo 'ENDMDL' >> " + pdb
-        o = subprocess_run(cmd, capture_output = True, check = True)
-        if isinstance(o, CalledProcessError):
-            logger.warning(f"Failed adding full header for {pdb}: bioassembly with partial header used.")
-            shutil.move(pdb1, pdb)
+        shutil.copy(biopdb, pdb)
 
         if not keep_bioassembly:
-            Path(pdb1).unlink()
-
-    logger.info("Download completed.")
+            Path(biopdb).unlink()
 
     return Path(pdb).resolve()
 
 
-def getpdb_cli():
+def cli_parser():
+    p = argparse.ArgumentParser(prog="getpdb",
+                                description=("Download one or more pdb files (bioassembly by default)"
+                                             " from the RSCB download service."))
+    p.add_argument(
+        "pdbid",
+        nargs="+",
+        default=[],
+        help="Specify the pdb ID(s), e.g.: 1ots 4lzt 1FAT",
+    )
+    p.add_argument(
+        "-get_bioassembly",
+        type=bool,
+        default=True,
+        help="Whether to attempt the bioassembly (default) or the full pdb download"
+    )
+    p.add_argument(
+        "-bioassembly_id",
+        type=int,
+        default=1,
+        help="Which bioassembly to download (default: 1)."
+    )
+    p.add_argument(
+        "--keep_bioassembly",
+        default=False,
+        action="store_true",
+        help="Whether to retain the downloaded bioassembly file (default: False)"
+    )
+
+    return p
+
+
+def getpdb_cli(argv=None):
     """Cli function for the `getpdb` tool.
     """
-    parser = argparse.ArgumentParser(prog="getpdb",
-                                     description=("Download one or more (bioassembly) pdb files "
-                                                  "from the RSCB download service."))
-    parser.add_argument("pdbid", metavar="pdbid",
-                        help="Specify the pdb ID(s), e.g.: 1ots 4lzt 1FAT",
-                        nargs="+", default=[])
-    args = parser.parse_args()
+    p = cli_parser()
+    args = p.parse_args(argv)
 
     pdbids = [id.lower() for id in args.pdbid]
 
     for pdbid in pdbids:
-        out = get_rcsb_pdb(pdbid)
+        out = get_rcsb_pdb(pdbid,
+                           get_bioassembly=args.get_bioassembly,
+                           bioassembly_id=args.bioassembly_id,
+                           keep_bioassembly=args.keep_bioassembly)
         if isinstance(out, tuple):
-            msg = out[1] + "PDB id: " + pdbid
-            print(msg)
+            logger.info(f"Download failed: {pdbid}; {out[1]}")
+        else:
+            logger.info(f"Download completed: {out.name}")
