@@ -215,7 +215,9 @@ class MSout_np:
                 self.res_kinds = None
         else:
             if self.mc_load == "conf":
-                # likely not applicable: not implemented
+                # CodeReview: it is `self.load_conf()` that is not setup for filtering
+                #             per res_kinds; `get_conf_info` can handle res_kinds if not None.
+                #
                 print("WARNING: Residue selection when loading conformer microstates",
                       "is not implemented: res_kinds reset to None.")
                 self.res_kinds = None
