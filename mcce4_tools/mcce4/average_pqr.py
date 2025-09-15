@@ -39,7 +39,7 @@ class ENV:
         if not self.rundir.joinpath(self.runprm["MCCE_HOME"]).exists():
             print(f"CRITICAL: {runprm_file!s} in {self.rundir!s} points to an",
                   f"inaccessible MCCE_HOME: {self.runprm['MCCE_HOME']!s}.\n",
-                  "If this folder is a testing copy, modify the path to MCCE_HOME & rerun."
+                  "If this folder is a copy, modify the path to MCCE_HOME & rerun."
                   )
             sys.exit(1)
 
@@ -111,7 +111,7 @@ class ENV:
             # save in ucase for comparing:
             RES_filter = [res.upper() for res in res_filter]
 
-        print(f"Reading parameters from {ftpldir!s}")
+        print(f"ENV.load_ftpl :: Reading parameters from {ftpldir!s}")
         self.param = defaultdict(list)
         for fp in ftpldir.glob("*.ftpl"):
             RES = fp.stem.upper()
@@ -137,9 +137,9 @@ class ENV:
         into a 'reduced' dictionary.
         Note: dict may be empty if list was used to filter ftpl conflist.
         """
+        print("ENV.renamed_res_to_dict")
         name_fp = Path(self.runprm["MCCE_HOME"]).joinpath("name.txt")
         res_grouped_dict = defaultdict(dict)
-        #aliphatic_groups = "CT1, CT2, CT3, CT4, FAR, dgd, lhg, lmg, lmt, sqd".split(", ")
 
         # Regex to capture the 'from' and 'to' residues
         pattern = r".{5}(.{3}).{13}(.{3}).*"
@@ -187,30 +187,6 @@ class ENV:
 
         return out
 
-    def get_titr_bounds(self):
-        """
-        Populate self.titr_bounds
-        ph       "ph" for pH titration, "eh" for eh titration       (TITR_TYPE)
-        0.0      Initial pH                                         (TITR_PH0)
-        1.0      pH interval                                        (TITR_PHD)
-        0.0      Initial Eh                                         (TITR_EH0)
-        30.0     Eh interval (in mV)                                (TITR_EHD)
-        15       Number of titration points                         (TITR_STEPS)
-        """
-        prec = 0
-        if self.runprm["TITR_TYPE"] == "ph":
-            b1 = float(self.runprm["TITR_PH0"])
-            step = float(self.runprm["TITR_PHD"])
-        else:
-            b1 = float(self.runprm["TITR_EH0"])
-            step = float(self.runprm["TITR_EHD"])
-
-        b2 = [b1 + i * step for i in range(int(self.runprm["TITR_STEPS"]))]
-        bounds = round(b1, prec), round(b2[-1], prec)
-        self.titr_bounds = bounds
-
-        return bounds
-
     def __str__(self):
         out = f"rundir: {self.rundir}\nrunprm dict:\n"
         for k in self.runprm:
@@ -245,6 +221,7 @@ class AverPQR:
            fort.38 that holds the occupancies; e.g.: '7.0' in a pH-titration,
            or '340.0' in a Eh-titration.
         """
+        print("AverPQR.__init__")
         self.mcce_dir = Path(mcce_dir)
         self.s2_fp = self.mcce_dir.joinpath("step2_out.pdb")
         if not self.s2_fp.exists():
@@ -265,18 +242,18 @@ class AverPQR:
         self.titr_pt = str(titr_pt) if val_is_numeric(titr_pt) else titr_pt
         self.df_38 = self.get_df38()
 
-        uniq_res = self.uniq_res.copy()
         # Populate self.env.conflist dict with res conflist:
-        self.env.load_ftpl(res_filter=uniq_res)
+        self.env.load_ftpl(res_filter=self.uniq_res)
 
         # known grouped res (by name.txt):
         # key = main moiety, value = dict:: key = group_name, value = is_ionizable
         # e.g.: "HEM": {"PAA": True, "PDD": True, "FAR": False},
         self.grouped_res = self.get_renamed_res()
 
+        return
 
     def get_df38(self) -> pd.DataFrame:
-
+        print("AverPQR.get_df38")
         def extract_res(ro: pd.Series):
                 """Extract the res id from confid including 'DM' if found."""
                 if ro[self.conformer_col][3:5] == "DM":
@@ -306,6 +283,7 @@ class AverPQR:
         Update inital res_groups dict produced by env.renamed_res_to_dict()
         with ionizable flag using data in AverPQR.env.conflist dict.
         """
+        print("AverPQR.get_renamed_res")
         res_groups = self.env.renamed_res_to_dict()
         if res_groups is None:
             return None
@@ -330,6 +308,7 @@ class AverPQR:
         """Assuming unique resnames in res_list, return the
         main moiety (the top key in grouped_res) and the groups resnames.
         """
+        print("AverPQR.get_moiety_groups")
         if self.grouped_res is None:
             return None, None
 
@@ -344,7 +323,9 @@ class AverPQR:
         return mo, grps
 
     def get_occ_df(self) -> pd.DataFrame:
-        occdf = self.df_38.copy()
+        print("AverPQR.get_occ_df")
+
+        occdf = self.df_38  #.copy()
         occdf["seq"] = occdf.index + 1
         occdf["keep"] = False
         occdf = occdf.rename(columns={self.conformer_col:"conformer", self.occ_col:"occ"})
@@ -375,7 +356,7 @@ class AverPQR:
                     if len(resdf) == 1:
                         resx = resdf.index[0]
                     else:
-                        resx = resdf.loc[resdf["confid"]==ter_cid].index[0]
+                        resx = resdf["occ"].idxmax()
                         # if resdf["res"].unique().tolist()[0] is CST.NEUTRAL_RES:
                         #     resx = resdf["occ"].idxmax()
                         # else:
@@ -416,20 +397,32 @@ class AverPQR:
         return occdf
 
     def get_dfs2(self) -> pd.DataFrame:
-        # load step2_out.pdb in a df with header:
-        hdr = "atype	seq	atm	res	confid	x	y	z	rad	q	hist".split()
-        df = pd.read_csv(self.s2_fp, sep=r"\s+", header=None, names=hdr)
-        df = df.drop("hist", axis=1)
-        df["resid"] = df.confid.str[:-4]
-        # create & initialize weighted q column:
-        df["wq"] = df["q"] * 1
+        print("AverPQR.get_dfs2")
 
-        return df
+        # load step2_out.pdb in a df with header:
+        flds = "rec seq atm alt res resnum confid x y z q rad".split()
+        lines_out = []
+        with open(self.s2_fp) as s2:
+            for line in s2:
+                line = line.strip()
+                rec, seq, atm, alt, res, conf, x, y, z, rad, q, _ = parse_mcce_line(line)
+                resnum = str(int(conf[1:-4]))
+                lines_out.append([rec, seq, atm, alt, res, resnum, conf, x, y, z, q, rad])
+
+        df2 = pd.DataFrame(lines_out, columns=flds)
+        df2["resid"] = df2.confid.str[:-4]
+        df2["q"] = df2["q"].astype(float)
+        # create & initialize weighted q column:
+        df2["wq"] = df2["q"]
+
+        return df2
 
     def get_reduced_dfs2(self) -> pd.DataFrame:
         """Return a step2 df with aggregated weighted occ and fitered
         for the most occupied conformers to keep in the pqr file.
         """
+        print("AverPQR.get_reduced_dfs2")
+
         occ_df = self.get_occ_df()
         dfs2 = self.get_dfs2()
         for_keeps = []
@@ -443,7 +436,7 @@ class AverPQR:
             if ro["keep"]:
                 for_keeps.append((confid, res))
 
-            # update occ-weigthed charge:
+            # update occ-weighted charge:
             msk = (dfs2["confid"]==confid) & (dfs2["res"]==res)
             rodf = dfs2.loc[msk]
             if len(rodf):
@@ -468,6 +461,8 @@ class AverPQR:
         return df2.loc[df2["keep"] == True]
 
     def s2_to_aver_pqr(self):
+        print("AverPQR.s2_to_aver_pqr")
+
         df_keep = self.get_reduced_dfs2()
         self.pqr_fp = self.s2_fp.with_name(apqr_filename_frmt.format(titr_pt=self.titr_pt))
 
@@ -493,7 +488,7 @@ class AverPQR:
 
         with open(self.pqr_fp, "w") as pqr:
             pqr.writelines(lines_out)
-        print(f"Created occ-weighted average charge pqr file: {self.pqr_fp!s}")
+        print(f"\nCreated occ-weighted average charge pqr file: {self.pqr_fp!s}")
 
         return
 
@@ -527,6 +522,7 @@ def get_aver_pqr_cli(argv=None):
     """
     p = cli_parser()
     args = p.parse_args(argv)
+
     apqr = AverPQR(args.mcce_dir, args.titr_pt)
     apqr.s2_to_aver_pqr()
     print(f"Average pqr file creation over for {Path(args.mcce_dir).absolute().name!r}.")
