@@ -15,7 +15,8 @@ import shutil
 import sys
 from typing import List, Union
 
-from mcce4.io_utils import get_mcce_filepaths,  reader_gen
+from mcce4.constants import CLI_EPILOG
+from mcce4.io_utils import get_mcce_filepaths
 from mcce4.io_utils import subprocess_run, CompletedProcess, CalledProcessError
 
 
@@ -346,7 +347,7 @@ def cli_parser():
 
     p = ArgumentParser(
         prog=TOOL_NAME,
-        epilog=">>> %(prog)s OVER",
+        epilog=CLI_EPILOG
     )
     p.add_argument(
         "-mcce_dir",

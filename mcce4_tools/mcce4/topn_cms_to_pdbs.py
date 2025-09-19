@@ -71,7 +71,7 @@ except ImportError as e:
 
 from mcce4.io_utils import get_mcce_filepaths, parse_mcce_line, show_elapsed_time
 from mcce4.msout_np import MSout_np
-from mcce4.constants import CANONICAL, IONIZABLE_RES, ALL_RES
+from mcce4.constants import CANONICAL, IONIZABLE_RES, ALL_RES, CLI_EPILOG
 
 
 # entry point name in MCCE_bin:
@@ -840,9 +840,7 @@ def cli_parser() -> ArgumentParser:
     p = ArgumentParser(
         prog=f"{APP_NAME}",
         description=DESC,
-        epilog="""Report issues & feature requests here:
-        https://github.com/GunnerLab/MCCE4/issues
-        """,
+        epilog=CLI_EPILOG
     )
     p.add_argument(
         "-mcce_dir",
@@ -862,7 +860,7 @@ def cli_parser() -> ArgumentParser:
         default="0",
         # parser will receive a string, no conversion: easier to determine if number in int or float later.
         type=str,
-        help="pH point (e.g.: 7, 7.5), at which the charge microstates are retrieved; Default: %(default)s.",
+        help="Eh point (e.g.: 350, 350.5), at which the charge microstates are retrieved; Default: %(default)s.",
     )
     p.add_argument(
         "-n_top",

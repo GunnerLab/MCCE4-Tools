@@ -28,7 +28,7 @@ from typing import Tuple
 
 import pandas as pd
 
-from mcce4.constants import CANONICAL
+from mcce4.constants import CANONICAL, CLI_EPILOG
 import mcce4.io_utils as mciou
 
 
@@ -295,8 +295,7 @@ def pr_cli(argv = None):
         prog="postrun",
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""Report issues here:
-        https://github.com/GunnerLab/MCCE4-Tools/issues""",
+        epilog=CLI_EPILOG
     )
     p.add_argument(
         "-run_dir",

@@ -1,4 +1,4 @@
-Tools in MCCE4-Tools - Last updated: 06/05/25:
+Tools in MCCE4-Tools - Last updated: 09/19/25:
  * Tools without description: awaiting authors input.
 
 cif2pdb           :: convert cif to pdb
@@ -14,7 +14,7 @@ filesdiff         :: Obtain the column difference between two mcce files, or dif
                       all_pK.out, all_sum_crg.out, entropy.out, fort.38, head3.lst, pK.out,
                       residues_stats.txt, sum_crg.out, vdw0.lst.
 
-get_aver_pqr      :: Obtain an occupancy-weigthed charge on the most occupied conformers in fort.38 together with step2_out.pdb data.
+get_aver_pqr      :: Obtain an occupancy-weighted charge pqr file using the occupancy table (fort.38) and step2_out.pdb data.
                      Minimal usage: get_aver_pqr
 
 getpdb            :: Download one or more (bioassembly) pdb files from the RSCB Protein Data Bank.
@@ -71,8 +71,8 @@ ms_top2pdbs       :: Create pdb & pqr files for the topN tautomeric protonation 
 
 ms_split_msout    :: Obtain a reduced msout file, preserving the original as all_<msout_file>.
                      Minimal usage:
-                                   ms_split_msout                       # ph=7, eh=0, mc_range=2 (2nd MC run)
-                                   ms_split_msout --reset_master -ph 5  # ph needed if not 7
+                        ms_split_msout                       # ph=7, eh=0, mc_range=2 (2nd MC run)
+                        ms_split_msout --reset_master -ph 5  # ph needed if not 7
                      options:
                       -h, --help            show this help message and exit
                       -mcce_dir MCCE_DIR    The mcce run or ms_out folder; required. (default: ./)
@@ -87,13 +87,9 @@ pdbs2pse          :: Bundle a list of pdbs into a Pymol seesion.
 
 postrun           :: Flags problem residues: non-canonical charge, high chi^2 or no fit.
 
-
 ----------------------------------------------------------------------------------
 Tools help:  For information and usage on each tool, run:
 
     <tool name> -h OR <bash script name> -h
 
-Tools documentation (WIP, needs updating):  
-    https://github.com/GunnerLab/MCCE4-Alpha/blob/main/doc/UserManual.md
-
-Problems? Bugs? Report new issues:  https://github.com/GunnerLab/MCCE4-Tools/issues
+Post problems, questions, bugs or feature requests here: https://github.com/GunnerLab/MCCE4-Tools/issues
