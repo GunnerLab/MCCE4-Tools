@@ -2,45 +2,67 @@
 
 from argparse import ArgumentParser
 from collections import defaultdict
+import logging
 from pathlib import Path
 import re
 import sys
-from typing import Union
+from typing import Tuple, Union
 
 import pandas as pd
 
-from mcce4.constants import aliphatic_groups, pqr_frmt
+from mcce4.constants import aliphatic_groups, pqr_frmt, ACIDIC_RES, NEUTRAL_RES, CLI_EPILOG
 from mcce4.io_utils import parse_mcce_line
 
 
-TER = ["NTR", "CTR"]
+class RawMessageFormatter(logging.Formatter):
+    """
+    A custom logging formatter that outputs only the raw message.
+    """
+    def format(self, record):
+        return record.getMessage()
+
+
+logger = logging.getLogger("get_aver_pqr")
+if "debug" in sys.argv:
+    logger.setLevel(logging.DEBUG)
+else:
+    logger.setLevel(logging.INFO)
+
+# Create a handler and set the custom formatter
+handler = logging.StreamHandler()
+handler.setFormatter(RawMessageFormatter())
+logger.addHandler(handler)
+
+logmsg_no_replace = "Output file %s already exists; either rename/delete" + \
+                   " it or use the '--replace' option."
+logmsg_save_interm = "Saved intermediate file %s to obtain sumcrg from pqr file."
+
+
+TER = ["NTR", "CTR", "NTG"]
+# confs to keep for pqr:
+CONF01_RES = ACIDIC_RES + ["CYS", "CYD","TYR", "CTR", "HOH"] + NEUTRAL_RES
+DEFAULT_RUNPRM = "run.prm.record"
+INTERM_FILNAME = "average_with_resids.pqr"
 
 
 apqr_filename_frmt = "average_{titr_pt}.pqr"
-# temp: to which confs were selected for pqr:
-occdf_filename_frmt = "occ_df_{titr_pt}.tsv"
-
-
-DEFAULT_RUNPRM = "run.prm.record"
 
 
 class ENV:
-    # Custom ENV for average_pqr purposes.
+    """Custom ENV for average_pqr purposes."""
     def __init__(self, rundir_path: str, runprm_file: str = DEFAULT_RUNPRM) -> dict:
         self.rundir = Path(rundir_path)
         self.runprm: dict = {}
         self.conflist: dict = {}
         self.res_filer: list = None
-        self.titr_bounds = None
-        self.sumcrg_hdr = ""
+
         # populate self.runprm dict:
         self.load_runprm(runprm_file)
-        # check MCCE_HOME from loading of runprm_file is accessible:
+        # check if MCCE_HOME in runprm_file is accessible:
         if not self.rundir.joinpath(self.runprm["MCCE_HOME"]).exists():
-            print(f"CRITICAL: {runprm_file!s} in {self.rundir!s} points to an",
-                  f"inaccessible MCCE_HOME: {self.runprm['MCCE_HOME']!s}.\n",
-                  "If this folder is a copy, modify the path to MCCE_HOME & rerun."
-                  )
+            logger.critical(("Problem: %s in %s points to an inaccessible MCCE_HOME: %s\n"
+                             "If this folder is a copy, modify the path to MCCE_HOME & rerun."),
+                            str(runprm_file), str(self.rundir), str(self.runprm["MCCE_HOME"]))
             sys.exit(1)
 
         return
@@ -48,10 +70,11 @@ class ENV:
     def load_runprm(self, runprm_file: str = DEFAULT_RUNPRM):
         fp = self.rundir.joinpath(runprm_file)
         if not fp.exists():
-            raise FileNotFoundError(f"Not found: {runprm_file} in {self.rundir}")
+            logger.critical("File not found: %s in %s", str(runprm_file), str(self.rundir))
+            sys.exit(1)
 
-        with open(fp) as fin:
-            for line in fin:
+        with open(fp) as fh:
+            for line in fh:
                 entry_str = line.strip().split("#")[0]
                 fields = entry_str.split()
                 if len(fields) > 1:
@@ -67,33 +90,68 @@ class ENV:
 
         return
 
-    def get_ftpl_conflist(self, fname: Union[str, Path]) -> tuple:
-        """Return a 2-tuple: res, confs (w/o BK).
+    def _get_ftpl_conflist(self, fname: Path) -> Tuple[str, list, dict]:
+        """Return a 3-tuple: res, confs list (w/o BK), atom order for each conf as parsed
+        from the CONFLIST and CONNECT lines of ftpl file fname.
+        Used by load_ftpl.
+
+        Args:
+         - fname: the name of a residue ftpl file.
+        Returns:
+         - 3-tuple: res, confs list (w/o BK), conf_order(dict)
+
+        Example of conf_order dict:
+          {'NTR01': {'CA': 1, 'HA': 2, 'N': 3, 'H': 4, 'H2': 5},
+           'NTR+1': {'CA': 1, 'HA': 2, 'N': 3, 'H': 4, 'H2': 5, 'H3': 6}}
         """
         found = False
         confs = None
         res, confs_str = "", ""
-        PREF = "CONFLIST, "    # e.g.: CONFLIST, CYS: CYSBK, CYS01, CYS-1
+        conf_order = defaultdict(dict)
+        ix = 0
+        mx = 0
+        prev_conf = ""
+        CLST = "CONFLIST, "    # e.g.: CONFLIST, CYS: CYSBK, CYS01, CYS-1
+        CNCT = "CONNECT, "     # e.g.: CONNECT, " O  ", ASPBK: sp2, " C  "
+        cnct_lines = []
         with open(fname) as fh:
             for line in fh:
-                if not line.startswith(PREF):
+                if not line.startswith((CLST, CNCT)):
+                    if line.startswith("CHARGE"):
+                        break
                     continue
                 found = True
-                res, confs_str = line.removeprefix(PREF).split(":")
-                confs_str = confs_str.strip().split("#")[0]
-                # get list and exclude BK:
-                confs = [c.strip() for c in confs_str.split(",")][1:]
-                break
-        if not found:
-            print(f"No CONFLIST in {fname!s}!")
-            return None, None
+                if line.startswith(CLST):
+                    res, confs_str = line.removeprefix(CLST).split(":")
+                    confs_str = confs_str.strip().split("#")[0]
+                    # get list and exclude BK:
+                    confs = [c.strip() for c in confs_str.split(",")][1:]
 
-        return res, confs
+                if line.startswith(CNCT):
+                    _, atm, conf, *_ = line.split(", ", maxsplit=3)
+                    atm = atm.strip('"').strip()
+                    conf = conf.split(":", maxsplit=1)[0].strip()
+                    cnct_lines.append([conf, atm])
+
+        if not found:
+            logger.debug("No CONFLIST in %s", str(fname))
+            return None, None, None
+
+        for ix, (conf, atm) in enumerate(cnct_lines, start=1):
+            if ix == 1:
+                mx = 0
+                prev_conf = conf
+            if prev_conf != conf:
+                mx = ix-1
+            conf_order[conf].update({atm:ix-mx})
+            prev_conf = conf
+            
+        return res, confs, dict(conf_order)
 
     def load_ftpl(self, res_filter: list = None):
         """
-        Load ENV.param dict holding each res conflist for each res in
-        res_filter, if any else for all res.
+        Load ENV.conflist dict holding each res conflist for each res in
+        res_filter if any, else for all res.
         Args:
          - res_filter (list): A list of res names; typically passed
                               in order to reduce the number of ftpl loaded,
@@ -105,30 +163,30 @@ class ENV:
             ftpldir = Path(self.runprm["MCCE_HOME"]).joinpath("param")
 
         RES_filter = None
-        if not res_filter is None:
+        if res_filter:
             # save as attribute:
             self.res_filer = res_filter
             # save in ucase for comparing:
             RES_filter = [res.upper() for res in res_filter]
 
-        print(f"ENV.load_ftpl :: Reading parameters from {ftpldir!s}")
-        self.param = defaultdict(list)
+        logger.debug("ENV.load_ftpl :: Reading parameters from %s", str(ftpldir))
         for fp in ftpldir.glob("*.ftpl"):
             RES = fp.stem.upper()
             if RES_filter:
                 if RES not in RES_filter:
                     continue
-                res, confs = self.get_ftpl_conflist(fp)
+                res, confs, conf_order = self._get_ftpl_conflist(fp)
                 if res is not None:
-                    self.conflist[res] = confs
+                    self.conflist[res] = [confs, conf_order]
 
                 RES_filter.remove(RES)
                 if not RES_filter:
                     break
             else:
-                res, confs = self.get_ftpl_conflist(fp)
+                # no filtering
+                res, confs, conf_order = self._get_ftpl_conflist(fp)
                 if res is not None:
-                    self.conflist[res] = confs
+                    self.conflist[res] = [confs, conf_order]
 
         return
 
@@ -137,7 +195,6 @@ class ENV:
         into a 'reduced' dictionary.
         Note: dict may be empty if list was used to filter ftpl conflist.
         """
-        print("ENV.renamed_res_to_dict")
         name_fp = Path(self.runprm["MCCE_HOME"]).joinpath("name.txt")
         res_grouped_dict = defaultdict(dict)
 
@@ -194,6 +251,27 @@ class ENV:
         return out
 
 
+def check_file(file_fp: Path, replace: bool, do_exit: bool = True) -> Tuple[bool, bool]:
+    """
+    Check whether the file exists and emove it according to replace and perrhaps
+    terminate the program according do_exit.
+    Returns:
+      A 2-tuple of booleans: (exists, removed) if do_exit = False.
+    """
+    if file_fp.exists():
+        if replace:
+            file_fp.unlink()
+            return True, True
+        else:
+            if not do_exit:
+                logger.warning("File %s not saved (replace is False).", str(file_fp))
+                return True, False
+            logger.error(logmsg_no_replace, str(file_fp))
+            sys.exit(1)
+    else:
+        return False, False
+
+
 def val_is_numeric(value: str) -> bool:
     """Return True if value is numeric or strictly boolean.
     """
@@ -213,7 +291,7 @@ class AverPQR:
     in order to obtain pqr file with with occupancy-weighted charges
     assigned to the most occupied conformers in fort.38.
     """
-    def __init__(self, mcce_dir: str, titr_pt: Union[str, int, float]):
+    def __init__(self, mcce_dir: str, titr_pt: Union[str, int, float], replace: bool):
         """
         Args:
          - mcce_dir (str): The mcce simulation folder.
@@ -221,69 +299,50 @@ class AverPQR:
            fort.38 that holds the occupancies; e.g.: '7.0' in a pH-titration,
            or '340.0' in a Eh-titration.
         """
-        print("AverPQR.__init__")
         self.mcce_dir = Path(mcce_dir)
+        # files checks:
         self.s2_fp = self.mcce_dir.joinpath("step2_out.pdb")
         if not self.s2_fp.exists():
-            raise FileNotFoundError(f"Not found: {self.s2_fp!s}")
+            logger.critical("File not found: %s", str(self.s2_fp))
+            sys.exit(1)
+
         self.f38_fp = self.mcce_dir.joinpath("fort.38") 
         if not self.f38_fp.exists():
-            raise FileNotFoundError(f"Not found: {self.f38_fp!s}")
+            logger.critical("File not found: %s", str(self.f38_fp))
+            sys.exit(1)
 
-        self.pqr_fp = None
-        self.conformer_col = None
-        self.occ_col = None
-        self.uniq_resids = None
+        self.replace = replace
         self.uniq_res = None
-        self.grouped_res = None
+        # set by AverPQR.get_occ_df if titr pt found in fort.38:
+        self.pqr_fp = None
+        # file to verify res sum crg:
+        self.pqr_with_resids_fp = None
+        self.sumcrg_fp = None
 
         self.env = ENV(self.mcce_dir)
         # cast to str if num:
         self.titr_pt = str(titr_pt) if val_is_numeric(titr_pt) else titr_pt
-        self.df_38 = self.get_df38()
+        self.occ_df = self.get_occ_df()
+        self.uniq_res = self.occ_df["res"].unique().tolist()
 
-        # Populate self.env.conflist dict with res conflist:
+        # Populate self.env.conflist dict with protein res:
         self.env.load_ftpl(res_filter=self.uniq_res)
 
-        # known grouped res (by name.txt):
+        # get known grouped res (by name.txt) + ionizable flag:
         # key = main moiety, value = dict:: key = group_name, value = is_ionizable
         # e.g.: "HEM": {"PAA": True, "PDD": True, "FAR": False},
         self.grouped_res = self.get_renamed_res()
 
         return
 
-    def get_df38(self) -> pd.DataFrame:
-        print("AverPQR.get_df38")
-        def extract_res(ro: pd.Series):
-                """Extract the res id from confid including 'DM' if found."""
-                if ro[self.conformer_col][3:5] == "DM":
-                    return ro[self.conformer_col][:5]
-                return ro[self.conformer_col][:3]
-
-        df = pd.read_csv(self.f38_fp, sep=r"\s+")
-        cols = df.columns.tolist()
-        try:
-            idx_titr = cols.index(self.titr_pt)
-        except ValueError:
-            sys.exit(f"Titration point {self.titr_pt!s} not in fort.38")
-
-        self.occ_col = cols[idx_titr]
-        self.conformer_col = cols[0]
-        df["res"] = df.apply(extract_res, axis=1)
-        df["confid"] = df[self.conformer_col].str[5:]
-        df["resid"] = df[self.conformer_col].str[5:-4]
-
-        self.uniq_resids = df["resid"].unique().tolist()
-        self.uniq_res = df["res"].unique().tolist()
-
-        return df
-
     def get_renamed_res(self) -> Union[dict, None]:
         """
         Update inital res_groups dict produced by env.renamed_res_to_dict()
         with ionizable flag using data in AverPQR.env.conflist dict.
+        Ionizable res have multiple confs in fort.38; need to know if a renamed
+        group is ionizable or not.
         """
-        print("AverPQR.get_renamed_res")
+        # renamed groups from name.txt:
         res_groups = self.env.renamed_res_to_dict()
         if res_groups is None:
             return None
@@ -307,34 +366,58 @@ class AverPQR:
     def get_moiety_groups(self, res_list: list) -> tuple:
         """Assuming unique resnames in res_list, return the
         main moiety (the top key in grouped_res) and the groups resnames.
+        Note:
+          res_list: list of confs returned when fort.38 is filtered by resid,
+          e.g. A0003. If the residue has been renamed by name.txt, the list holds
+          the main res (moiety), along with its associated group(s), e.g.:
+          ["PAA", "PDD", "HEM"]
         """
-        print("AverPQR.get_moiety_groups")
         if self.grouped_res is None:
             return None, None
-
+        # return the key (main res) if found:
         mo = [k for k in res_list if k in self.grouped_res.keys()]
         if mo:
             mo = mo[0]
         else:
             return None, None
 
-        grps = tuple(self.grouped_res[mo].keys())
-
-        return mo, grps
+        return mo, tuple(self.grouped_res[mo].keys())
 
     def get_occ_df(self) -> pd.DataFrame:
-        print("AverPQR.get_occ_df")
+        # fn for df.apply:
+        def extract_res(ro: pd.Series):
+            """Extract the res id from confid including 'DM' if found."""
+            if ro["conformer"][3:5] == "DM":
+                return ro["conformer"][:5]
+            return ro["conformer"][:3]
 
-        occdf = self.df_38  #.copy()
-        occdf["seq"] = occdf.index + 1
-        occdf["keep"] = False
-        occdf = occdf.rename(columns={self.conformer_col:"conformer", self.occ_col:"occ"})
-        occdf = occdf[["conformer","seq","resid","confid","res","occ","keep"]]
+        # save to file which confs were selected for pqr:
+        occdf_fname_frmt = "occ_df_{titr_pt}.tsv"
 
-        for ux, ur in enumerate(self.uniq_resids, start=1):
-            df1 = occdf.loc[occdf["resid"]==ur]
+        df = pd.read_csv(self.f38_fp, sep=r"\s+")
+        cols = df.columns.tolist()
+        try:
+            idx_titr = cols.index(self.titr_pt)
+            self.pqr_fp = self.s2_fp.with_name(apqr_filename_frmt.format(titr_pt=self.titr_pt))
+        except ValueError:
+            logger.critical("Titration point %s is not in fort.38", self.titr_pt)
+            sys.exit(1)
+
+        df = df.rename(columns={cols[0]:"conformer", cols[idx_titr]:"occ"})
+        df["res"] = df.apply(extract_res, axis=1)
+        df["confid"] = df["conformer"].str[5:]
+        df["resid"] = df["conformer"].str[5:-4]
+
+        uniq_resids = df["resid"].unique().tolist()
+        df["keep"] = False
+        df = df[["conformer","resid","confid","res","occ","keep"]]
+
+        # update the 'keep' column:
+        for ur in uniq_resids:
+            df1 = df.loc[df["resid"]==ur]
             uconfs = df1["confid"].unique()
             if len(uconfs) != len(df1):
+                # case of res with multiple confids
                 term_group = set(df1["res"].unique().tolist()).intersection(TER)
                 if term_group:
                     # res with multiple confids due to TER capping
@@ -342,153 +425,237 @@ class AverPQR:
                     # TODO:
                     # - Get which charged ter conf to use according to titr_pt
                     #   - if 'conformer_col == "eh": ph is 7 by default but it can be changed;
-                    #   => need to read run.prm.record
+                    #   => need to read env.runprm PH0 key
                     #   => need to get reference pKas for all ionizable residues
 
-                    # default charged ter conf at ph7:
+                    # default: charged ter capping group at ph7:
                     is_ter = df1["conformer"].str.startswith(("NTR+1","CTR-1"))
                     terx = df1.loc[is_ter].index[0]
-                    occdf.loc[terx, "keep"] = True
-                    ter_cid = df1.loc[terx, "confid"]
+                    df.loc[terx, "keep"] = True
 
+                    # now get the actual terminal residue
                     in_ter = df1["res"].isin(TER)
                     resdf = df1.loc[~in_ter]
                     if len(resdf) == 1:
                         resx = resdf.index[0]
                     else:
                         resx = resdf["occ"].idxmax()
-                        # if resdf["res"].unique().tolist()[0] is CST.NEUTRAL_RES:
+                        # if resdf["res"].unique().tolist()[0] is in CST.NEUTRAL_RES:
                         #     resx = resdf["occ"].idxmax()
                         # else:
                         #     resx = resdf["occ"].idxmin()
-
                     # update
-                    occdf.loc[resx, "keep"] = True
+                    df.loc[resx, "keep"] = True
                 else:
-                    # res with multiple confids
+                    # non-terminal res with multiple confids
                     res_lst = df1["res"].unique().tolist()
+                    # 1. check mo_res exists
                     mo_res, grp_res_tpl = self.get_moiety_groups(res_lst)
                     if mo_res is None:
-                        print(f"No residue names for this resid {ur!r} were found in dict 'grouped_res',",
+                        logger.critical(f"No residue names for this resid {ur!r} were found in dict 'grouped_res',",
                                "which gathers known split residues (moiety, groups) from 'name.txt'.",
                                f"\nThese residues are: {res_lst}")
                         sys.exit(1)
 
                     # 2. get max occ for mo_res and each group
                     mo_ix = df1.loc[df1["res"] == mo_res]["occ"].idxmax()
-                    occdf.loc[mo_ix, "keep"] = True
-
+                    df.loc[mo_ix, "keep"] = True
                     for gres in grp_res_tpl:
-                        # need to check if group existsL
+                        # flag the max occ group
                         df2 = df1.loc[df1["res"] == gres]
                         if len(df2):
                             gr_ix = df2["occ"].idxmax()
-                            occdf.loc[gr_ix, "keep"] = True
+                            df.loc[gr_ix, "keep"] = True
             else:
                 ix = df1["occ"].idxmax()
                 if "DM" in df1.loc[ix, "res"]:
                     continue
                 else:
-                    occdf.loc[ix, "keep"] = True
-        # save:
-        occ_fp = self.mcce_dir.joinpath(occdf_filename_frmt.format(titr_pt=self.titr_pt))
-        occdf.to_csv(occ_fp, sep="\t")
+                    df.loc[ix, "keep"] = True
 
-        return occdf
+        if logger.level == logging.DEBUG:
+            occ_fp = self.mcce_dir.joinpath(occdf_fname_frmt.format(titr_pt=self.titr_pt))
+            check_file(occ_fp, self.replace, do_exit=False)
 
-    def get_dfs2(self) -> pd.DataFrame:
-        print("AverPQR.get_dfs2")
+            df.to_csv(occ_fp, sep="\t")
+            logger.info("Saved the occupancy dataframe as %s", str(occ_fp))
 
-        # load step2_out.pdb in a df with header:
-        flds = "rec seq atm alt res resnum confid x y z q rad".split()
+        return df
+
+    def most_occ_to_pqr(self):
+        """Create the pqr file of the most occ'd conformers.
+        """
+        df_keep = self.occ_df.loc[self.occ_df["keep"] == True]  # for most occ'd
         lines_out = []
+        lines_conf = []
+        with_conf_frmt = "{:6s} {:>5} {:>5} {:^4} {:3} {:>5} {:>8} {:>8} {:>8} {:>6} {:>6}\n"
+        #                resid:  D1023 _005
+        new_pair = None, None  # conf, res
+        new_found = False
         with open(self.s2_fp) as s2:
             for line in s2:
                 line = line.strip()
-                rec, seq, atm, alt, res, conf, x, y, z, rad, q, _ = parse_mcce_line(line)
-                resnum = str(int(conf[1:-4]))
-                lines_out.append([rec, seq, atm, alt, res, resnum, conf, x, y, z, q, rad])
-
-        df2 = pd.DataFrame(lines_out, columns=flds)
-        df2["resid"] = df2.confid.str[:-4]
-        df2["q"] = df2["q"].astype(float)
-        # create & initialize weighted q column:
-        df2["wq"] = df2["q"]
-
-        return df2
-
-    def get_reduced_dfs2(self) -> pd.DataFrame:
-        """Return a step2 df with aggregated weighted occ and fitered
-        for the most occupied conformers to keep in the pqr file.
-        """
-        print("AverPQR.get_reduced_dfs2")
-
-        occ_df = self.get_occ_df()
-        dfs2 = self.get_dfs2()
-        for_keeps = []
-
-        for _, ro in occ_df.iterrows():
-            confid = ro["confid"]
-            res = ro["res"]
-
-            if "DM" in res:
-                continue
-            if ro["keep"]:
-                for_keeps.append((confid, res))
-
-            # update occ-weighted charge:
-            msk = (dfs2["confid"]==confid) & (dfs2["res"]==res)
-            rodf = dfs2.loc[msk]
-            if len(rodf):
-                new_q = rodf["q"] * ro["occ"]
-                dfs2.loc[msk, "wq"] = new_q
-            else:
-                print(f"Problem: No s2 lines found for {confid= } - {res= }")
-
-        # sum wq over atoms, the final df is used to write pqr
-        grp2 = dfs2.groupby(by=["seq","confid","res","atm","resid"])["wq"].sum()
-        df2 = grp2.reset_index()
-        df2.sort_values(by="seq", inplace=True)
-
-        # add col for filtering
-        df2["keep"] = False
-        for tpl in for_keeps:
-            keepconf, keepres = tpl
-            mk = (df2["confid"] == keepconf) & (df2["res"] == keepres)
-            df2.loc[mk, "keep"] = True
-
-        # return filtered df for confs to keep
-        return df2.loc[df2["keep"] == True]
-
-    def s2_to_aver_pqr(self):
-        print("AverPQR.s2_to_aver_pqr")
-
-        df_keep = self.get_reduced_dfs2()
-        self.pqr_fp = self.s2_fp.with_name(apqr_filename_frmt.format(titr_pt=self.titr_pt))
-
-        lines_out = []
-        with open(self.s2_fp) as s2:
-            for line in s2:
-                line  = line.strip()
                 rec, seq, atm, alt, res, conf, x, y, z, rad, crg, _ = parse_mcce_line(line)
                 resnum = str(int(conf[1:-4]))
 
-                if conf.endswith("_000"):
+                if conf.endswith("_000") and (res[0] != "_"):
                     # write pqr line for BK as is
                     lines_out.append(pqr_frmt.format(rec, seq, atm, res, resnum, x, y, z, crg, rad))
+                    if logger.level == logging.DEBUG:
+                        lines_conf.append(with_conf_frmt.format(rec,conf[:5],seq,atm,res,resnum,x,y,z,crg,rad))
                 else:
-                    # confid res atm
-                    msk = (df_keep["confid"]==conf) & (df_keep["res"]==res) & (df_keep["atm"]==atm)
-                    ok_df = df_keep.loc[msk]
-                    if ok_df.shape[0]:  # should be 1
-                        q = f"{ok_df['wq'].tolist()[0]:.3f}"
-                        lines_out.append(
-                            pqr_frmt.format(rec, seq, atm, res, resnum, x, y, z, q, rad)
-                        )
+                    pair = conf, res
+                    if pair != new_pair:
+                        new_pair = pair
+                        # maybe get occ to keep until new pair
+                        msk = (df_keep["confid"]==conf) & (df_keep["res"]==res)
+                        ok_df = df_keep.loc[msk]
+                        if ok_df.shape[0]:
+                            occ = ok_df["occ"].values[0]
+                            new_found = True
+                        else:
+                            new_found = False
+                    if (pair == new_pair) and new_found:
+                        q = f"{float(crg)*occ:.3f}"
+                        lines_out.append(pqr_frmt.format(rec, seq, atm, res, resnum, x, y, z, q, rad))
+                        if logger.level == logging.DEBUG:
+                            lines_conf.append(with_conf_frmt.format(rec,conf[:5],seq,atm,res,resnum,x,y,z,q,rad))
 
+        logger.debug(f"Number of lines to write: {len(lines_out):,}")
         with open(self.pqr_fp, "w") as pqr:
             pqr.writelines(lines_out)
-        print(f"\nCreated occ-weighted average charge pqr file: {self.pqr_fp!s}")
+        logger.info("Saved the occ-weighted charge pqr file: %s", str(self.pqr_fp))
+
+        if logger.level == logging.DEBUG:
+            self.pqr_with_resids_fp = self.pqr_fp.with_name(INTERM_FILNAME)
+            exists, removed = check_file(self.pqr_with_resids_fp, self.replace)
+            if (exists, removed) == (True, False):
+                return
+            
+            with open(self.pqr_with_resids_fp, "w") as pqr:
+                pqr.writelines(lines_conf)
+            logger.info(logmsg_save_interm, str(self.pqr_with_resids_fp))
+
+        return
+
+    def s2_to_aver_pqr(self):
+        """Create the pqr file of the weighted aver crg over a residue confs.
+        """
+        new_pair = None, None  # conf, res
+        new_found = False
+        s2_lines = []
+        logger.info("Processing each line in step2_out.pdb...")
+        with open(self.s2_fp) as s2:
+            for lx, line in enumerate(s2, start=1):
+                line = line.strip()
+                # fields for pqr: rec, seq, atm, res, resnum, x, y, z, crg, rad
+                rec, seq, atm, alt, res, conf, x, y, z, rad, crg, _ = parse_mcce_line(line)
+                resnum = str(int(conf[1:-4]))
+                x, y, z, rad, crg = float(x), float(y), float(z), float(rad), float(crg)
+
+                if conf.endswith("_000") or res[0] == "_":
+                    keep = conf
+                    s2_lines.append([rec, seq, conf, keep, res, resnum, atm,  x, y, z, rad, crg])
+                else: 
+                    # get occ weighted crg
+                    pair = conf, res
+                    if pair != new_pair:
+                        new_pair = pair
+                        # maybe get occ to keep until new pair
+                        msk = (self.occ_df["confid"]==conf) & (self.occ_df["res"]==res)
+                        ok_df = self.occ_df.loc[msk]
+                        if ok_df.shape[0]:
+                            occ = float(ok_df["occ"].values[0])
+                            new_found = True
+                        else:
+                            new_found = False
+
+                        if res in CONF01_RES:
+                            search_keep = f"{res}01{conf[:5]}"
+                        else:
+                            search_keep = rf"{res}+1{conf[:5]}"
+                        try:
+                            keep = self.occ_df.loc[self.occ_df["conformer"].str.startswith(search_keep), "confid"].values[0]
+                        except IndexError as e:
+                            print(f"Could not get the conf to keep for: {res= }; {conf= }; {search_keep= }")
+                            sys.exit()
+
+                    if (pair == new_pair) and new_found:
+                        crg = crg*occ
+                        s2_lines.append([rec, seq, conf, keep, res, resnum, atm, x,y,x,rad,crg])
+
+        logger.info(f"Number of s2 lines processed = {lx:,}")
+
+        cols = "rec,seq,conf,keep,res,resnum,atm,x,y,z,rad,crg".split(",")
+        s2_df = pd.DataFrame(s2_lines, columns=cols)
+        s2_df["resid"] = s2_df["conf"].str[:5]
+
+        logger.info("Summing the weighted charges...")
+        grp1 = s2_df.groupby(["rec","resid","res","atm"]).agg({"crg":"sum"})
+        df1 = grp1.stack(level=0,future_stack=True).reset_index([0,1,2,3])
+        df1 = df1.reset_index(drop=True)
+        df1.columns = ["rec","resid","res","atm","wq"]
+
+        logger.info("Averaging the coordinates...")
+        grp2 = s2_df.groupby(["rec","resid","res","atm","x","y","z"]).agg({"x":"mean", "y":"mean", "z":"mean"})
+        df2 = grp2.stack(level=0,future_stack=True).reset_index([0,1,2,3, 4, 5, 6])
+        df2 = df2.drop(0, axis=1)
+        df2.drop_duplicates(inplace=True)
+        df2 = df2.reset_index(drop=True)
+
+        logger.info("Merging the results...")
+        wq_merg = s2_df.merge(df1, left_on=["rec","resid","res","atm"],
+                              right_on=["rec","resid","res","atm"])
+        wq_merg.drop(["x","y","z"], axis=1, inplace=True)
+        
+        all_merg = wq_merg.merge(df2, left_on=["rec","resid","res","atm"],
+                                 right_on=["rec","resid","res","atm"])
+        all_merg = all_merg.loc[all_merg["conf"]==all_merg["keep"]]
+
+        logger.info(f"Writing {all_merg.shape[0]:,} pqr lines...")
+        pqr2 = None
+        if logger.level == logging.DEBUG:
+            self.pqr_with_resids_fp = self.pqr_fp.with_name(INTERM_FILNAME)
+            exists, removed = check_file(self.pqr_with_resids_fp, self.replace, do_exit=False)
+            if (exists, removed) != (True, False):
+                pqr2 = open(self.pqr_with_resids_fp, "w") 
+        
+        with open(self.pqr_fp, "w") as pqr:
+            for _, ro in all_merg.iterrows():
+                pqr.write(pqr_frmt.format(ro.rec, ro.seq, ro.atm, ro.res, ro.resnum,
+                                          f"{ro.x:.3f}", f"{ro.y:.3f}", f"{ro.z:.3f}",
+                                          f"{ro.wq:.3f}", ro.rad)
+                )
+                if pqr2 is not None:
+                    pqr2.write(pqr_frmt.format(ro.rec, ro.resid, ro.seq, ro.atm, ro.res,
+                                               ro.resnum,f"{ro.x:.3f}", f"{ro.y:.3f}",
+                                               f"{ro.z:.3f}", f"{ro.wq:.3f}", ro.rad)
+                    )
+        logger.info("Saved the occ-weighted charge pqr file: %s", str(self.pqr_fp))
+        if pqr2 is not None:
+            pqr2.close()
+            logger.info(logmsg_save_interm, str(self.pqr_with_resids_fp))
+
+        return
+
+    def write_res_sumcrg_from_pqr(self):
+        """List the residues sum charge from the pqr file."""
+        if logger.level != logging.DEBUG:
+            return
+        hdr = "rec,resid,seq,atm,res,resnum,x,y,z,crg,rad".split(",")
+        pqrdf = pd.read_csv(self.pqr_with_resids_fp, sep='\s+', header=None, names=hdr)
+        lines = []
+        for ur in pqrdf["resid"].unique().tolist():
+            df = pqrdf.loc[pqrdf["resid"]==ur]
+            lines.append(f"resid {ur} {df['res'].unique()}: {df['crg'].sum():.1f}\n")
+
+        self.sumcrg_fp = self.pqr_fp.with_name(f"sumcrg_pqr_{self.titr_pt}.tsv")
+        # this point is reached if debug, so quit if file exists and not replace:
+        _ = check_file(self.sumcrg_fp, self.replace)  # default: do_exit=True
+
+        with open(self.sumcrg_fp, "w") as sumcrg:
+            sumcrg.writelines(lines)
+        logger.info("Saved the residue sum charge from the pqr file: %s", str(self.sumcrg_fp))
 
         return
 
@@ -496,11 +663,19 @@ class AverPQR:
 def cli_parser():
     p = ArgumentParser(
         prog="get_aver_pqr",
-        description="""Obtain an occupancy-weigthed charge on the most 
-        occupied conformers in fort.38 together with step2_out.pdb data.
+        description="""Obtain a pqr file with Boltzmann averaged charges or one for the most occupied
+        conformers in fort.38 together with step2_out.pdb data.
         """,
-        usage="%(prog)s # minimal usage if pH=7.0, else:\n       %(prog)s -titr_pt <value>",
-        add_help=True
+        add_help=True,
+        usage=("\n"
+        "  %(prog)s                             # minimal usage if pH=7.0 & -mcce_dir is cwd (default output is 'Boltzmann averaged' pqr file)\n"
+        "  %(prog)s -mcce_dir dir -titr_pt 350  # case for a Eh titration in 'dir' (the titration point must be found in fort.38)\n"
+        "  %(prog)s --most_occd_pqr             # to obtain the pqr of the most occupied conformers (with -titr_pt <value> if not default)\n"
+        "  %(prog)s --replace                   # to overwrite any existing file\n"
+        "  %(prog)s --debug                     # to obtain each residue sumcrg from the pqr file\n"
+        "  %(prog)s --debug --replace           # save as above with overwriting of existing files\n"
+        ), 
+        epilog=CLI_EPILOG
     )
     p.add_argument(
         "-mcce_dir",
@@ -513,7 +688,24 @@ def cli_parser():
         default=7.0,
         help="The titration point at which to fetch the occupancies in fort.38; default: %(default)s"
     )
-
+    p.add_argument(
+        "--most_occd_pqr",
+        default=False,
+        action="store_true",
+        help="This option will create the pqr file of the most occupied conformers; default: %(default)s"
+    )
+    p.add_argument(
+        "--debug",
+        default=False,
+        action="store_true",
+        help="Set logging level to DEBUG instead of INFO. This mode creates a sum crg file from the averaged pqr file; default: %(default)s"
+    )
+    p.add_argument(
+        "--replace",
+        default=False,
+        action="store_true",
+        help="Including this option will overwrite an existing pqr file; default: %(default)s"
+    )
     return p
 
 
@@ -523,9 +715,23 @@ def get_aver_pqr_cli(argv=None):
     p = cli_parser()
     args = p.parse_args(argv)
 
-    apqr = AverPQR(args.mcce_dir, args.titr_pt)
-    apqr.s2_to_aver_pqr()
-    print(f"Average pqr file creation over for {Path(args.mcce_dir).absolute().name!r}.")
+    pqr_fp = Path(args.mcce_dir).joinpath(f"average_{args.titr_pt}.pqr")
+    _ = check_file(pqr_fp, args.replace)
+
+    apqr = AverPQR(args.mcce_dir, args.titr_pt, args.replace)
+    if args.most_occd_pqr:
+        logger.info("Create the pqr file for the most occupied conformers...")
+        apqr.most_occ_to_pqr()
+    else:
+        version = ("This is Version 1 of the tool:\n"
+                  "  Averaged coordinates with Boltzmann averaged charges "
+                  "(sum of occupancy-weighted charges), over the confomers of each residue.")
+        logger.info(version)
+        apqr.s2_to_aver_pqr()
+    
+    if logger.level == logging.DEBUG:
+        apqr.write_res_sumcrg_from_pqr()
+    logger.info("Average pqr file creation over for '%s'\n", Path(args.mcce_dir).absolute().name)
 
     return
 

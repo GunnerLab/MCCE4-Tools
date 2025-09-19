@@ -125,3 +125,6 @@ pqr_field_frmt_dict = {
     "crg": "{:>6}",
     "rad": "{:>6}",
     }
+
+# for cli parsers: give correct repo:
+CLI_EPILOG = "\nReport issues & feature requests here: https://github.com/GunnerLab/MCCE4-Tools/issues"

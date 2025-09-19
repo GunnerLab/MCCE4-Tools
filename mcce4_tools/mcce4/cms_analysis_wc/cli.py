@@ -14,6 +14,7 @@ import sys
 from mcce4.cms_analysis_wc import APP_NAME, IONIZABLES
 from mcce4.cms_analysis_wc import analysis as msa
 from mcce4.cms_analysis_wc import parameters as prm
+from mcce4.constants import CLI_EPILOG
 
 
 logger = logging.getLogger(__name__)
@@ -67,6 +68,7 @@ Notes:
         prog=APP_NAME,
         description=DESC,
         formatter_class=RawDescriptionHelpFormatter,
+        epilog=CLI_EPILOG
     )
     p.add_argument("params_file", type=str, help="The input parameters file.")
 
