@@ -14,24 +14,12 @@ from mcce4.constants import aliphatic_groups, pqr_frmt, ACIDIC_RES, NEUTRAL_RES,
 from mcce4.io_utils import parse_mcce_line
 
 
-class RawMessageFormatter(logging.Formatter):
-    """
-    A custom logging formatter that outputs only the raw message.
-    """
-    def format(self, record):
-        return record.getMessage()
-
-
 logger = logging.getLogger("get_aver_pqr")
 if "debug" in sys.argv:
     logger.setLevel(logging.DEBUG)
 else:
     logger.setLevel(logging.INFO)
 
-# Create a handler and set the custom formatter
-handler = logging.StreamHandler()
-handler.setFormatter(RawMessageFormatter())
-logger.addHandler(handler)
 
 logmsg_no_replace = "Output file %s already exists; either rename/delete" + \
                    " it or use the '--replace' option."
@@ -291,7 +279,9 @@ class AverPQR:
     in order to obtain pqr file with with occupancy-weighted charges
     assigned to the most occupied conformers in fort.38.
     """
-    def __init__(self, mcce_dir: str, titr_pt: Union[str, int, float], replace: bool):
+    def __init__(self, mcce_dir: str, titr_pt: Union[str, int, float],
+                 replace: bool,
+                 debug: bool = False):
         """
         Args:
          - mcce_dir (str): The mcce simulation folder.
@@ -312,6 +302,7 @@ class AverPQR:
             sys.exit(1)
 
         self.replace = replace
+        self.debug = debug
         self.uniq_res = None
         # set by AverPQR.get_occ_df if titr pt found in fort.38:
         self.pqr_fp = None
@@ -384,6 +375,9 @@ class AverPQR:
         return mo, tuple(self.grouped_res[mo].keys())
 
     def get_occ_df(self) -> pd.DataFrame:
+        """Get processed fort.38 in a pandas.DataFrame.
+        Note:  The last column 'keep' is used by most_occ_to_pqr.
+        """
         # fn for df.apply:
         def extract_res(ro: pd.Series):
             """Extract the res id from confid including 'DM' if found."""
@@ -473,12 +467,12 @@ class AverPQR:
                 else:
                     df.loc[ix, "keep"] = True
 
-        if logger.level == logging.DEBUG:
+        if self.debug:
             occ_fp = self.mcce_dir.joinpath(occdf_fname_frmt.format(titr_pt=self.titr_pt))
-            check_file(occ_fp, self.replace, do_exit=False)
-
-            df.to_csv(occ_fp, sep="\t")
-            logger.info("Saved the occupancy dataframe as %s", str(occ_fp))
+            exists, removed = check_file(occ_fp, self.replace, do_exit=False)
+            if (exists, removed) != (True, False):
+                df.to_csv(occ_fp, sep="\t")
+                logger.info("Saved the occupancy dataframe as %s", str(occ_fp))
 
         return df
 
@@ -501,7 +495,7 @@ class AverPQR:
                 if conf.endswith("_000") and (res[0] != "_"):
                     # write pqr line for BK as is
                     lines_out.append(pqr_frmt.format(rec, seq, atm, res, resnum, x, y, z, crg, rad))
-                    if logger.level == logging.DEBUG:
+                    if self.debug:
                         lines_conf.append(with_conf_frmt.format(rec,conf[:5],seq,atm,res,resnum,x,y,z,crg,rad))
                 else:
                     pair = conf, res
@@ -510,15 +504,19 @@ class AverPQR:
                         # maybe get occ to keep until new pair
                         msk = (df_keep["confid"]==conf) & (df_keep["res"]==res)
                         ok_df = df_keep.loc[msk]
+                        if self.debug:
+                            print(f"ok_df: {new_pair= }:", ok_df, sep="\n")
+
                         if ok_df.shape[0]:
                             occ = ok_df["occ"].values[0]
                             new_found = True
                         else:
                             new_found = False
+
                     if (pair == new_pair) and new_found:
                         q = f"{float(crg)*occ:.3f}"
                         lines_out.append(pqr_frmt.format(rec, seq, atm, res, resnum, x, y, z, q, rad))
-                        if logger.level == logging.DEBUG:
+                        if self.debug:
                             lines_conf.append(with_conf_frmt.format(rec,conf[:5],seq,atm,res,resnum,x,y,z,q,rad))
 
         logger.debug(f"Number of lines to write: {len(lines_out):,}")
@@ -526,12 +524,11 @@ class AverPQR:
             pqr.writelines(lines_out)
         logger.info("Saved the occ-weighted charge pqr file: %s", str(self.pqr_fp))
 
-        if logger.level == logging.DEBUG:
+        if self.debug:
             self.pqr_with_resids_fp = self.pqr_fp.with_name(INTERM_FILNAME)
             exists, removed = check_file(self.pqr_with_resids_fp, self.replace)
             if (exists, removed) == (True, False):
                 return
-            
             with open(self.pqr_with_resids_fp, "w") as pqr:
                 pqr.writelines(lines_conf)
             logger.info(logmsg_save_interm, str(self.pqr_with_resids_fp))
@@ -541,6 +538,10 @@ class AverPQR:
     def s2_to_aver_pqr(self):
         """Create the pqr file of the weighted aver crg over a residue confs.
         """
+        logger.info("""Version 1 of the tool:
+  Averaged coordinates with Boltzmann averaged charges (sum of occupancy-weighted charges),"
+  over the confomers of each residue.""")
+
         new_pair = None, None  # conf, res
         new_found = False
         s2_lines = []
@@ -595,6 +596,8 @@ class AverPQR:
         df1 = grp1.stack(level=0,future_stack=True).reset_index([0,1,2,3])
         df1 = df1.reset_index(drop=True)
         df1.columns = ["rec","resid","res","atm","wq"]
+        if self.debug:
+            print("Intermediate result: df1, weighted crg:", df1, sep="\n")
 
         logger.info("Averaging the coordinates...")
         grp2 = s2_df.groupby(["rec","resid","res","atm","x","y","z"]).agg({"x":"mean", "y":"mean", "z":"mean"})
@@ -602,6 +605,8 @@ class AverPQR:
         df2 = df2.drop(0, axis=1)
         df2.drop_duplicates(inplace=True)
         df2 = df2.reset_index(drop=True)
+        if self.debug:
+            print("Intermediate result: df2, aver coords:", df2, sep="\n")
 
         logger.info("Merging the results...")
         wq_merg = s2_df.merge(df1, left_on=["rec","resid","res","atm"],
@@ -611,10 +616,12 @@ class AverPQR:
         all_merg = wq_merg.merge(df2, left_on=["rec","resid","res","atm"],
                                  right_on=["rec","resid","res","atm"])
         all_merg = all_merg.loc[all_merg["conf"]==all_merg["keep"]]
+        if self.debug:
+            print("Final result: all_merg df:", all_merg, sep="\n")
 
         logger.info(f"Writing {all_merg.shape[0]:,} pqr lines...")
         pqr2 = None
-        if logger.level == logging.DEBUG:
+        if self.debug:
             self.pqr_with_resids_fp = self.pqr_fp.with_name(INTERM_FILNAME)
             exists, removed = check_file(self.pqr_with_resids_fp, self.replace, do_exit=False)
             if (exists, removed) != (True, False):
@@ -640,17 +647,17 @@ class AverPQR:
 
     def write_res_sumcrg_from_pqr(self):
         """List the residues sum charge from the pqr file."""
-        if logger.level != logging.DEBUG:
+        if not self.debug:
             return
         hdr = "rec,resid,seq,atm,res,resnum,x,y,z,crg,rad".split(",")
         pqrdf = pd.read_csv(self.pqr_with_resids_fp, sep='\s+', header=None, names=hdr)
         lines = []
         for ur in pqrdf["resid"].unique().tolist():
             df = pqrdf.loc[pqrdf["resid"]==ur]
-            lines.append(f"resid {ur} {df['res'].unique()}: {df['crg'].sum():.1f}\n")
+            lines.append(f"{ur} {df['res'].unique()}: {df['crg'].sum():.1f}\n")
 
         self.sumcrg_fp = self.pqr_fp.with_name(f"sumcrg_pqr_{self.titr_pt}.tsv")
-        # this point is reached if debug, so quit if file exists and not replace:
+        # this point is reached if debug, so quit if file exists and not replaced:
         _ = check_file(self.sumcrg_fp, self.replace)  # default: do_exit=True
 
         with open(self.sumcrg_fp, "w") as sumcrg:
@@ -670,7 +677,7 @@ def cli_parser():
         usage=("\n"
         "  %(prog)s                             # minimal usage if pH=7.0 & -mcce_dir is cwd (default output is 'Boltzmann averaged' pqr file)\n"
         "  %(prog)s -mcce_dir dir -titr_pt 350  # case for a Eh titration in 'dir' (the titration point must be found in fort.38)\n"
-        "  %(prog)s --most_occd_pqr             # to obtain the pqr of the most occupied conformers (with -titr_pt <value> if not default)\n"
+        "  %(prog)s --most_occ_pqr             # to obtain the pqr of the most occupied conformers (with -titr_pt <value> if not default)\n"
         "  %(prog)s --replace                   # to overwrite any existing file\n"
         "  %(prog)s --debug                     # to obtain each residue sumcrg from the pqr file\n"
         "  %(prog)s --debug --replace           # save as above with overwriting of existing files\n"
@@ -689,7 +696,7 @@ def cli_parser():
         help="The titration point at which to fetch the occupancies in fort.38; default: %(default)s"
     )
     p.add_argument(
-        "--most_occd_pqr",
+        "--most_occ_pqr",
         default=False,
         action="store_true",
         help="This option will create the pqr file of the most occupied conformers; default: %(default)s"
@@ -718,19 +725,14 @@ def get_aver_pqr_cli(argv=None):
     pqr_fp = Path(args.mcce_dir).joinpath(f"average_{args.titr_pt}.pqr")
     _ = check_file(pqr_fp, args.replace)
 
-    apqr = AverPQR(args.mcce_dir, args.titr_pt, args.replace)
-    if args.most_occd_pqr:
+    apqr = AverPQR(args.mcce_dir, args.titr_pt, args.replace, debug=args.debug)
+    if args.most_occ_pqr:
         logger.info("Create the pqr file for the most occupied conformers...")
         apqr.most_occ_to_pqr()
     else:
-        version = ("This is Version 1 of the tool:\n"
-                  "  Averaged coordinates with Boltzmann averaged charges "
-                  "(sum of occupancy-weighted charges), over the confomers of each residue.")
-        logger.info(version)
         apqr.s2_to_aver_pqr()
-    
-    if logger.level == logging.DEBUG:
-        apqr.write_res_sumcrg_from_pqr()
+
+    apqr.write_res_sumcrg_from_pqr()
     logger.info("Average pqr file creation over for '%s'\n", Path(args.mcce_dir).absolute().name)
 
     return
