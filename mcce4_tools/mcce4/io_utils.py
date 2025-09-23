@@ -101,6 +101,7 @@ def mccepdbline_positions() -> List[Tuple]:
     Returns a list of character indices ranges for each items in an extended mcce
     pdb line.
     """
+    #      [rec, seq, atm, alt, res, conf, x, y, z, rad, crg, hist]
     return [
             (0, 5),(6, 10),(11, 15),(16, 16),(17, 19),(21, 29),
             (30, 37),(38, 45),(46, 53),(54, 61),(62, 73),(80, 89),
