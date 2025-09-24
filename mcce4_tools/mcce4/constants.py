@@ -127,4 +127,4 @@ pqr_field_frmt_dict = {
     }
 
 # for cli parsers: give correct repo:
-CLI_EPILOG = "\nReport issues & feature requests here: https://github.com/GunnerLab/MCCE4-Tools/issues"
+CLI_EPILOG = "\nReport issues & feature requests here: https://github.com/GunnerLab/MCCE4-Tools/issues\n"
