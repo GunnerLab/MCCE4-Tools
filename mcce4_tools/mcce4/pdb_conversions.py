@@ -149,7 +149,7 @@ def cif_to_pdb_parser() -> ArgumentParser:
         help="Input cif file",
     )
     p.add_argument(
-        "-pdb_file",
+        "--pdb_file",
         type=str,
         default="",
         help="Output pdb file if different from the input file name; Default %(default)s.",
