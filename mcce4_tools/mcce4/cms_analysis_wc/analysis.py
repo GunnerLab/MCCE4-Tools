@@ -1,4 +1,5 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
+
 """
 Module: analysis.py
 
@@ -186,7 +187,11 @@ def choose_res_data(top_df: pd.DataFrame, correl_resids: list) -> pd.DataFrame:
     df = top_df.copy()
     out_cols = correl_resids + df.columns[-3:-1].tolist()
     df = df[out_cols]
-    return df.reset_index(drop=True)
+    # final reduction: get unique microstates viz those specific residues
+    df = df.groupby(correl_resids).agg({"Count": "sum", "Occupancy": "sum"}).reset_index()
+    df = df.sort_values(by="Count", ascending=False).reset_index(drop=True)
+
+    return df
 
 
 def add_fixed_resoi_crg_to_topdf(top_df: pd.DataFrame, fixed_resoi_crg_df: pd.DataFrame,
@@ -340,7 +345,11 @@ class CMSWC_Pipeline:
             sys.exit(1)
         
         # Extract pH and Eh from msout_file parameter
-        msout_filename = self.main_prms.get("msout_file", "pH7eH0ms.txt")
+        msout_filename = self.main_prms.get("msout_file")
+        if msout_filename is None:
+            msout_filename = "pH7eH0ms.txt"
+            logger.info("Using default msout file: %s", msout_filename)
+
         try:
             p, e = msout_filename[:-4].lower().split("eh")
             self.ph = p.removeprefix("ph")
@@ -360,7 +369,7 @@ class CMSWC_Pipeline:
 
         # Get MCCE input files (step2_out not used here)
         self.h3_fp, _, self.msout_fp = get_mcce_filepaths(self.mcce_dir, self.ph, self.eh)
-        #logger.info(f"Using head3.lst: {self.h3_fp}\nUsing msout file: {self.msout_fp}")
+        logger.info(f"Using head3.lst: {self.h3_fp}\nUsing msout file: {self.msout_fp}")
 
         # Process residue kinds
         self.residue_kinds = self.main_prms.get("residue_kinds", IONIZABLES)
@@ -560,10 +569,6 @@ class CMSWC_Pipeline:
         energy_distribution(self.mc.all_cms, self.output_dir, kind="cms",
                             save_name=save_name, 
                             show=self.show_fig, fig_size=fig_size)
-        #TODO: re: Issue #10:
-        # plot crgms_energy_histogram for residues in self.correl_resids
-        # Needed: filterinf as in:
-        #   filtered_cms = self.mc.filter_cms_E_within_bounds(self.mc.all_cms, ebounds)
 
         # Charge Microstate Energy Histograms based on bounds
         cms_E_stats = self.mc.get_cms_energy_stats()
@@ -613,6 +618,9 @@ class CMSWC_Pipeline:
                     filtered_cms, self.mc.background_crg, title, self.output_dir,
                     save_name=save_name, show=self.show_fig
                 )
+                # TODO, re: Issue #10: plot crgms_energy_histogram for residues in self.correl_resids
+                # Needed: filtering of filtered_cms for correl_resids
+
             else:
                 logger.warning(f"No charge microstates found within bounds {ebounds} for '{title}'. Skipping histogram.")
 

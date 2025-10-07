@@ -1,4 +1,5 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
+
 """
 Module  cms_analysis_wc./tests/test_analysis.py
 """

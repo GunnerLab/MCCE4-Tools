@@ -22,7 +22,7 @@
 #   * All identifiers for plots can have attributes given with '.<attribute>, e.g.: energy_histogram.fig_size = (8,8).
 #    - Valid attributes: .save_name, .fig_size, .title (and .bounds for the 'charge_histogramN' identifier).
 #
-# OPTION TO RUN THE TOOL to get a list of residues & exit:
+# OPTION TO RUN THE TOOL to get a list of residues & exit (if not commented out):
 # ======================================================================================
 # Purpose: To return multi-line string of resids ready to use as values of the 'correl_resids' identifier.
 # Default is False. If True, the list will be output to screen and the program will exit.
@@ -57,10 +57,14 @@ min_occ = 0
 
 # RESIDUES SELECTION
 # ========================================================================================
+# Notes:
+#  - residues codes or conformer ids can be given with or without quotes.
+#  - order or duplicates do not matter.
+#  - square brackets are required.
+#
 # residue_kinds :: 3-letter code of residues of interest for filtering the microstates collection.
 # Default: If the 'residue_kinds line' is absent, commented out, or its value is an empty list,
 #          all ionizable residues are used for filtering.
-# Note: order or duplicates do not matter.
 #
 residue_kinds =  [ASP, PL9, LYS, GLU, HIS, TYR, NTR, CTR]
 

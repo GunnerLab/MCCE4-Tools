@@ -1,4 +1,5 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
+
 """
 Module: parameters.py
 
@@ -254,7 +255,6 @@ def check_res_list(correl_lst: list, res_lst: list = None, conf_info: np.ndarray
         correl2 = deepcopy(correl_lst)
         #res2iconf = get_resid2iconf_dict(conf_info)
         for cr in correl_lst:
-            #if res2iconf.get(cr) is None:
             # check resid field:
             if not len(free_ci[np.where(free_ci[:, 1] == cr)]):
                 logger.warning(f"Removing {cr!r} from correl_lst: not in conformer space.")

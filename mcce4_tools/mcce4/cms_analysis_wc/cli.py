@@ -1,4 +1,5 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
+
 """
 Module: cli.py
 
@@ -8,6 +9,7 @@ Module: cli.py
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
 import logging
 from pathlib import Path
+from pprint import pprint
 from shutil import copyfile
 import sys
 
@@ -23,7 +25,7 @@ logger = logging.getLogger(__name__)
 DEF_PARAMS = "default_params.crgms"
 
 
-def list_head3_ionizables(h3_fp: Path, as_string: bool = True) -> list:
+def list_head3_ionizables(h3_fp: Path) -> list:
     """Return the list of ionizable resids from head3.lst.
     When argument 'as_string' is True, the output ia a 'ready-to-paste'
     string that can be pasted into the input parameter file to populate the
@@ -41,14 +43,9 @@ def list_head3_ionizables(h3_fp: Path, as_string: bool = True) -> list:
     h3_ioniz_res = list(
         dict((f"{res[:3]}{res[5:11]}", "") for res in h3_lines if res[:3] in IONIZABLES).keys()
     )
-    if not as_string:
-        return h3_ioniz_res
+    pprint(h3_ioniz_res)
 
-    res_lst = "[\n"
-    for res in h3_ioniz_res:
-        res_lst += f"{res!r},\n"
-
-    return res_lst + "]"
+    return
 
 
 def crgmsa_parser() -> ArgumentParser:
@@ -93,7 +90,7 @@ def crgmswc_cli(argv=None):
     if list_ionizables is not None:
         if list_ionizables.capitalize() == "True":
             logger.info("List of ionizable residues in head3.lst:")
-            print(list_head3_ionizables(main_d.get("mcce_dir", ".") + "/head3.lst"))
+            list_head3_ionizables(main_d.get("mcce_dir", ".") + "/head3.lst")
 
             dest_fp = Path.cwd().joinpath(DEF_PARAMS)
             if not dest_fp.exists():
