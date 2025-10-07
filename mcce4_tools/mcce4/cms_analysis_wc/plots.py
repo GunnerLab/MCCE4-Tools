@@ -9,6 +9,8 @@ import logging
 from pathlib import Path
 import sys
 from typing import Tuple
+import warnings
+warnings.simplefilter("error", UserWarning)
 
 logger = logging.getLogger(__name__)
 try:
@@ -100,12 +102,30 @@ def crgms_energy_histogram(
     out_dir: Path,
     save_name: str,
     show: bool = False,
+    only_count: bool = True
 ):
     """Plot charge microstates average energies vs the state protein charge,
     along with a marginal histogram.
+
+    Args:
+     - only_count (bool, True): to create dotplot + histogram of counts only,
+                                If False, energies are on the y-axis and the
+                                function is true to its name.
     """
-    state_idx = 1 if len(top_cms[0]) == 6 else 0
-    data = np.array([[sum(arr[state_idx]) + background_crg, arr[-1]] for arr in top_cms])
+    if len(top_cms[0]) == 6:
+        # array from mc_load=="all"
+        state_idx = 1
+    else:
+        # array from mc_load=="crg"
+        state_idx = 0
+
+    if only_count:
+        data = np.array([[sum(arr[state_idx]) + background_crg, arr[-1]] for arr in top_cms])
+        ydata = data[:, -1]
+    else:
+        # data: netcrg, averE, count
+        data = np.array([[sum(arr[state_idx]) + background_crg, arr[-2], arr[-1]] for arr in top_cms])
+        ydata = data[:, -2]
     net_crg = data[:, 0]
 
     fs = 12  # font size for axes labels and title
@@ -113,24 +133,28 @@ def crgms_energy_histogram(
     g1 = sns.JointGrid(marginal_ticks=True, height=6)
     ax = sns.scatterplot(
         x=net_crg,
-        y=data[:, 1],
-        size=data[:, 1],
+        y=ydata,
+        size=data[:, -1],
         legend="brief",
         ax=g1.ax_joint,
     )
-    plt.yscale("log")
+    try:
+        plt.yscale("log")
+        ax.set_ylabel("log$_{10}$(Count)", fontsize=fs)
+    except UserWarning:
+        plt.yscale("linear")
+        ax.set_ylabel("Energy (Kcal/mol)", fontsize=fs)
 
     ax.set_xticks(range(int(min(net_crg)), int(max(net_crg)) + 1))
     ax.set_xlabel("Charge", fontsize=fs)
-    ax.set_ylabel("log$_{10}$(Count)", fontsize=fs)
     ax.legend(bbox_to_anchor=(1.0, 1.0), loc=2, borderaxespad=0.0)
 
     ax2 = sns.histplot(x=net_crg, linewidth=2, discrete=True, ax=g1.ax_marg_x)
     ax2.set_ylabel(None, fontsize=fs)
     g1.ax_marg_y.set_axis_off()
-    g1.fig.subplots_adjust(top=0.9)
+    g1.figure.subplots_adjust(top=0.9)
     if fig_title:
-        g1.fig.suptitle(fig_title, fontsize=fs)
+        g1.figure.suptitle(fig_title, fontsize=fs)
     fig_fp = out_dir.joinpath(save_name)
     g1.savefig(fig_fp, dpi=300, bbox_inches="tight")
     print(f"Figure saved: {fig_fp}")

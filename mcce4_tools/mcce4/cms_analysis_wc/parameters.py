@@ -59,27 +59,28 @@ def params_main(ph: str="7", eh: str="0") -> dict:
 
 
 def params_histograms() -> dict:
-    """Obtain cms_analysis histogram parameters dict with default values."""
+    """Obtain cms_analysis histogram parameters dict with default values.
+    """
     params_defaults = {
         "charge_histogram0": {
             "bounds": "(None, None)",
-            "title": "Protonation Microstates Energy",
-            "save_name": "crgms_logcount_vs_E.png",
+            "title": "Protonation MS Count",
+            "save_name": "crgms_logcount.png",
         },
         "charge_histogram1": {
             "bounds": "(Emin, Emin + 1.36)",
-            "title": "Protonation Microstates Energy within 1.36 kcal/mol of Lowest",
-            "save_name": "crgms_logcount_vs_lowestE.png",
+            "title": "Protonation MS Count - E within 1.36 kcal/mol of Lowest",
+            "save_name": "crgms_logcount_lowestE.png",
         },
         "charge_histogram2": {
             "bounds": "(Eaver - 0.68, Eaver + 0.68)",
-            "title": "Protonation Microstates Energy within 0.5 pH (0.68 kcal/mol) of Mean",
-            "save_name": "crgms_logcount_vs_averE.png",
+            "title": "Protonation MS Count - E within 0.5 pH (0.68 kcal/mol) of Mean",
+            "save_name": "crgms_logcount_averE.png",
         },
         "charge_histogram3": {
             "bounds": "(Emax - 1.36, Emax)",
-            "title": "Protonation Microstates Energy within 1.36 kcal/mol of Highest",
-            "save_name": "crgms_logcount_vs_highestE.png",
+            "title": "Protonation MS Count - E within 1.36 kcal/mol of Highest",
+            "save_name": "crgms_logcount_highestE.png",
         },
     }
 
