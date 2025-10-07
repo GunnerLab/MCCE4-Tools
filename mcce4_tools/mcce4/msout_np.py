@@ -1005,6 +1005,17 @@ class MSout_np:
         ms_e = self.all_ms[:, -2]
         return round(np.min(ms_e), 2), round(np.mean(ms_e), 2), round(np.max(ms_e), 2)
 
+    def get_resoi_cms(self, resoi: Union[list, np.ndarray]) -> Union[np.ndarray, None]:
+        """Obtain a filtered .all_cms array for residues of interest if any."
+        """
+        if not self.cms_resids:
+            return None
+        # get res of interest info arr: its index will be used to filter all_cms
+        resoi_info_idx = np.array(self.conf_info[np.isin(self.conf_info[:,1], resoi)][:,0],
+                                  dtype='int')
+
+        return self.all_cms[resoi_info_idx]
+
     @staticmethod
     def filter_cms_E_within_bounds(top_cms: Union[list, np.ndarray],
                                    E_bounds: Tuple[float, float]) -> list:
@@ -1014,8 +1025,9 @@ class MSout_np:
         if E_bounds == (None, None):
             return top_cms
 
-        # index of energy data:
-        E = 3 if len(top_cms[0]) == 6 else 2   # 2 :: array from mc_load=="crg"
+        # index of energy item:
+        # 3 :: array from mc_load=="all"; 2 :: array from mc_load=="crg"
+        E = 3 if len(top_cms[0]) == 6 else 2   
         filtered = []
         for i, ro in enumerate(top_cms[:, 0]):
             # ignore top cms out of bounds:
@@ -1029,12 +1041,12 @@ class MSout_np:
         """
         WIP
         Return how many (c)ms are ned to reach an occ of 50%, 90%, etc.
-        """
+
         print("Checking occ drop.")
         # determine which topn data to return as per mc_load:
         which_top = {"conf":1, "crg":2, "all":3}
         process_top = which_top[self.mc_load]
-
+        """
         pass
 
     def get_topN_data(self, N: int=None, min_occ: float = MIN_OCC,
@@ -1129,12 +1141,14 @@ class MSout_np:
             return top_ms, None
 
     def top_cms_df(self, top_cms: list,
-                   cms_wc_format: bool = False) -> pd.DataFrame:
+                   cms_wc_format: bool = False,
+                   cms_wc_keep_E: bool = False) -> pd.DataFrame:
         """
         Arguments:
-          - output_tauto: Set to False to keep the charge instead of the string tautomer.
+          - top_cms: List of top cms data
           - cms_wc_format: Set to True to get df formatted for crg ms analysis with
                            weighted correlation.
+          - cms_wc_keep_E: Set to True to keep the energy column in cms_wc_format mode.
         """
         fixed_free_res = None
         n_ffres = 0
@@ -1201,11 +1215,13 @@ class MSout_np:
         # Format as per original specs in Raihan's microstate_analysis_code:
         cols = ["Order"] + self.cms_resids + ["E", "SumCharge", "Count", "Occupancy"]
         df = pd.DataFrame(data, columns=cols)
-        df.drop("E", axis=1, inplace=True)
         df["Order"] = df.index + 1
-
-        # move SumCharge to end:
-        new_cols = df.columns[:-3].tolist() + ["Count", "Occupancy", "SumCharge"]
+        if not cms_wc_keep_E:
+            df = df.drop("E", axis=1)
+            # move SumCharge to end:
+            new_cols = df.columns[:-3].tolist() + ["Count", "Occupancy", "SumCharge"]
+        else:
+            new_cols = df.columns[:-4].tolist() + ["E", "Count", "Occupancy", "SumCharge"]
 
         return df[new_cols].set_index("Order")
 

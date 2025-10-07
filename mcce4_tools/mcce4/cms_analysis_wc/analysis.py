@@ -184,12 +184,15 @@ class WeightedCorr:
 
 
 def choose_res_data(top_df: pd.DataFrame, correl_resids: list) -> pd.DataFrame:
+    """Prereq: correl_resids is a subset of the residues in top_df.
+    """
     df = top_df.copy()
     out_cols = correl_resids + df.columns[-3:-1].tolist()
     df = df[out_cols]
     # final reduction: get unique microstates viz those specific residues
     df = df.groupby(correl_resids).agg({"Count": "sum", "Occupancy": "sum"}).reset_index()
     df = df.sort_values(by="Count", ascending=False).reset_index(drop=True)
+    df.index = df.index + 1
 
     return df
 
@@ -336,6 +339,8 @@ class CMSWC_Pipeline:
         logger.info("Initializing CMSWC_Pipeline...")
         self._setup_paths_and_params()
 
+        return
+
     def _setup_paths_and_params(self):
         """Sets up file paths and validates parameters.
         """
@@ -380,6 +385,8 @@ class CMSWC_Pipeline:
         self.correl_resids = self.main_prms.get("correl_resids")
         self.show_fig = eval(self.main_prms.get("fig_show", "False"))
 
+        return
+
     def load_data(self):
         """Loads data using MSout_np.
         """
@@ -408,6 +415,8 @@ class CMSWC_Pipeline:
                  logger.info(f"Residues for correlation: {self.correl_resids}")
         else:
             logger.warning("No residues provided for correlation analysis.")
+
+        return
 
     def process_residue_charges(self):
         """Calculates and saves average/fixed residue charges.
@@ -450,6 +459,8 @@ class CMSWC_Pipeline:
             self.fixed_resoi_crg_df = None # Ensure it's None if empty
             logger.info("No fixed residues found within the specified 'residue_kinds'.")
 
+        return
+
     def analyze_top_states(self):
         """Analyzes the top N microstates and prepares data for correlation.
         """
@@ -482,6 +493,8 @@ class CMSWC_Pipeline:
                                    self.main_defaults["all_crg_count_resoi_csv"])
             ))
             logger.info("Saved ranked cms data including fixed residues of interest to all_crg_count_resoi_csv")
+
+        return
 
     def perform_correlation(self):
         """Performs weighted correlation analysis and generates heatmap.
@@ -555,6 +568,8 @@ class CMSWC_Pipeline:
         else:
             logger.warning("Correlation matrix has less than 2 residues after processing. Skipping heatmap.")
 
+        return
+
     def generate_energy_plots(self):
         """Generates energy distribution and histogram plots.
         """
@@ -618,11 +633,19 @@ class CMSWC_Pipeline:
                     filtered_cms, self.mc.background_crg, title, self.output_dir,
                     save_name=save_name, show=self.show_fig
                 )
-                # TODO, re: Issue #10: plot crgms_energy_histogram for residues in self.correl_resids
-                # Needed: filtering of filtered_cms for correl_resids
-
             else:
                 logger.warning(f"No charge microstates found within bounds {ebounds} for '{title}'. Skipping histogram.")
+            
+        # Per Issue #10: plot crgms_logcount for residues in self.correl_resids
+        resoi_cms = self.mc.get_resoi_cms(self.correl_resids)
+        if resoi_cms is not None and len(resoi_cms):
+            logger.info(f"Plotting histogram for residues of interest")
+            title = "Protonation MS Counts for Residues of Interest"
+            save_name = "crgms_logcount_resoi.png"
+            crgms_energy_histogram(resoi_cms, self.mc.background_crg, title, self.output_dir,
+                    save_name=save_name, show=self.show_fig)
+
+        return
 
     def run(self):
         """Executes the full analysis pipeline.
