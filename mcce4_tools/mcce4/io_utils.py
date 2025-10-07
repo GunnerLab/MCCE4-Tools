@@ -148,7 +148,7 @@ def get_mcce_filepaths(mcce_dir: Path, ph: str = "7", eh: str = "0") -> Tuple:
     """
     ok = True
     out = []
-
+    tried = []
     for fname in ["head3.lst", "step2_out.pdb", "ms_out"]:
         fp = mcce_dir.joinpath(fname)
         ok = ok and fp.exists()
@@ -158,17 +158,24 @@ def get_mcce_filepaths(mcce_dir: Path, ph: str = "7", eh: str = "0") -> Tuple:
         if fname == "ms_out":
             ph = float(ph)
             eh = float(eh)
-            # test msout filename with fractional ph, eh:
+            # msout filename can have either 2 variants: with integers for pH/Eh,
+            # or with float with a precision of 2.
+            #
+            # test msout filename with fractional, precision 2, ph, eh:
             msout_fp = fp.joinpath(f"pH{ph:.2f}eH{eh:.2f}ms.txt")
             if msout_fp.exists():
                 out.append(msout_fp)
             else:
+                tried.append(msout_fp.name)
                 # filename with integers
                 msout_fp = fp.joinpath(f"pH{ph:.0f}eH{eh:.0f}ms.txt")
                 if msout_fp.exists():
                     out.append(msout_fp)
                 else:
-                    sys.exit(f"Not found: msout file for pH={ph:.0f}, eH={eh:.0f}")
+                    tried.append(msout_fp.name)
+                    msg = (f"Not found: msout file for pH={ph:.0f}, eH={eh:.0f} "
+                           f"in either of these formats: {tried}.")
+                    sys.exit(msg)
         else:
             out.append(fp)
 
