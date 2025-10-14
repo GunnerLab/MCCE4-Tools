@@ -1180,10 +1180,10 @@ class MSout_np:
             # sci notation for occ, e.g.: 1.23e+06
             if ix_state == 1:
                 fields.extend([round(itm[3], 2), sum(state) + self.background_crg, itm[5],
-                               f"{itm[4]:.2e}"])
+                               round(itm[4], 6)])
             else:
                 fields.extend([round(itm[2], 2), sum(state) + self.background_crg, itm[4],
-                               f"{itm[3]:.2e}"])
+                               round(itm[3], 6)])
             data.append(fields)
 
         if not cms_wc_format:
