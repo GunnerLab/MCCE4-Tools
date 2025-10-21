@@ -1,5 +1,8 @@
+# INPUT PARAMETER FILE for Protonation Microstates Analysis with Weighted Correlation
+# Tool: ms_protonation
+# Usage: ms_protonation param.crgms
+#.......................................................................
 # Minimal Input file
-#   Purpose: To use all possible defaults
 
 # mcce_dir :: The directory of a MCCE run containing a ms_out subfolder :: Default: current directory.
 mcce_dir = 4lzt
