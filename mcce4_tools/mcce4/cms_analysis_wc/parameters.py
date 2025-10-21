@@ -138,7 +138,7 @@ def load_crgms_param(filepath: str) -> Tuple[dict, dict]:
     with open(filepath) as f:
         # data lines:
         lines = [line.strip() for line in f.readlines() if line.strip()
-                 and not line.strip().startswith("#")]
+                 and not line.strip().startswith(("#", "@"))]
 
     multi_found = False
     for line in lines:
