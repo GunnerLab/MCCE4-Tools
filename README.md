@@ -4,14 +4,15 @@
 
 ## Installation Steps:
   1. Navigate to a directory of your choice (referred to as 'clone_dir'):
-  2. Clone this repo, MCCE4-Tools:
+  2. Clone this repo, MCCE4-Tools & cd into it (cpy and paste this command into your terminal):
   ```
-   git clone https://github.com/GunnerLab/MCCE4-Tools.git
+   git clone https://github.com/GunnerLab/MCCE4-Tools.git; cd MCCE4-Tools;
   ```
 
-  3. Add the clone's path to your `.bashrc` (`.bash_profile`) file, save it, then "dot" or source the file:
+  3. Add the clone's path to your `.bashrc` (`.bash_profile`) file, save it, then "dot" or __source the file__:
   ```
-   # add MCCE4-Tools clone to the system path:
+   # CHANGE 'clone_dir' to your path!
+
    export PATH="clone_dir/MCCE4-Tools/mcce4_tools:$PATH"
   ```
 
@@ -40,9 +41,6 @@
     * Type `getpdb` and press Enter: the cli usage should display
 
 <!--- Section commented out:
-      Would likely conflict with the 'bashrc setup' described above, which also enables
-      pogrammatic access.
-
   7. For developing:
     * Activate your environment, e.g. `conda activate mct4`
     * Go into the clone directory (`cd MCCE4-Tools`)
@@ -64,21 +62,15 @@
 
 ## Keeping your toolbase up to date:
 As this is repo is bound to be frequently updated, your installation must be kept up to date.  
-To do so run these commands:
+To do so, run these commands:
 
-  1. Go into the clone directory (`cd clone_dir/MCCE4-Tools`)
+  1. Go into your clone directory (`cd clone_dir/MCCE4-Tools`; CHANGE 'clone_dir' to your path!)
   2. Refresh the code with a `git pull`:
   ```
    git pull;
   ```
 
-<!--- Section commented out: not absolutely necessary for current setup (i.e. refs in .bashrc).
-  3. If you have setup your clone for development, refresh the environment installation:
-  ```
-   conda activate mct4;
-   pip install -e .
-  ```
--->
+  You can then go to any directory where your want to process MCCE4 outputs/
 
 ## Command line tools descriptions:
   * A concise description is viewable from your clone's `tools.info` file:

@@ -11,15 +11,15 @@ channels:
 dependencies:
   - python=3.10
   - pip
-
   - mdanalysis
-  - networkx
   - parmed
-  - scipy
   - setuptools>=64
   - pip:
-    - matplotlib
     - numpy
+    - scipy
+    - matplotlib
     - pandas
+    - pygraphviz
+    - networkx
     - requests
     - seaborn
