@@ -277,7 +277,7 @@ def combine_all_free_fixed_residues(free_res_crg_df: pd.DataFrame,
         logger.error("Could not combine free and fixed residues.", exc_info=e)
         return None
 
-    return df.T
+    return df
 
 
 def cluster_corr_matrix(corr_df: pd.DataFrame, n_clusters: int = 5) -> pd.DataFrame:
@@ -656,4 +656,4 @@ class CMSWC_Pipeline:
         self.generate_energy_plots()
         self.analyze_top_states()
         self.perform_correlation()
-        logger.info("Analysis pipeline finished.")
+        logger.info("Analysis pipeline end.")

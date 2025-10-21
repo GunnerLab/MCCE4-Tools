@@ -568,6 +568,8 @@ class MSout_np:
 
         if cms_vec:
             self.all_cms = np.array(cms_vec, dtype=object)
+            # remove 0 count; hack to remove first initialized vec
+            self.all_cms = self.all_cms[np.where(self.all_cms[:,-1] != 0)]
             if self.is_monte:
                 self.N_space = self.all_cms[:, -1].sum()
                 print(f"State space: {self.N_space:,}")
@@ -722,6 +724,8 @@ class MSout_np:
 
         if ms_vec:
             self.all_ms = np.array(ms_vec, dtype=object)
+            # remove 0 count; hack to remove first initialized vec
+            self.all_ms = self.all_ms[np.where(self.all_ms[:,-1] != 0)]
             self.N_ms = len(self.all_ms)
             print(f"Conformer microstates loaded: {self.N_ms:,}\n")
         else:
@@ -729,6 +733,8 @@ class MSout_np:
         
         if cms_vec:
             self.all_cms = np.array(cms_vec, dtype=object)
+            # remove 0 count; hack to remove first initialized vec
+            self.all_cms = self.all_cms[np.where(self.all_cms[:,-1] != 0)]
             self.N_cms = len(self.all_cms)
             print(f"Protonation microstates found: {self.N_cms:,}\n")
             if self.is_monte:
@@ -1040,7 +1046,7 @@ class MSout_np:
     def how_many_ms_to_ooc_pct(self, occ_pct: list=[50, 90]) -> int:
         """
         WIP
-        Return how many (c)ms are ned to reach an occ of 50%, 90%, etc.
+        Return how many (c)ms are needed to reach an occ of 50%, 90%, etc.
 
         print("Checking occ drop.")
         # determine which topn data to return as per mc_load:
