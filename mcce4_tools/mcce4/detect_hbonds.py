@@ -4,7 +4,7 @@
 Module: detect_hbonds.py
 
 Description:
-This module detects hydrogen bonds between conformers atoms in the input pdb file, 
+This module detects hydrogen bonds between conformers atoms in the input mcce pdb file, 
 step2_out.pdb by default, and outputs their list to file <pdb folder>/hah.txt.
 A H-bond-blocking atoms list is also output to file <pdb folder>/blocking.txt if any
 are found.
@@ -17,12 +17,6 @@ of the MCCE4 codebase.
 Compared to step 6 hah.txt output:
   Step 6 excludes hydrogen bonds with the backbone atoms; here it's a choice.
   Step 6 doesn't check if the potential hydrogen bonds are blocked by 3rd atom.
-
-Usage:
-  detect_hbonds.py [step2_out.pdb]
-  detect_hbonds.py --out_dir <path/to/location/different/from/pdb/parent/folder>
-  detect_hbonds.py path/to/step2_out.pdb --no_bk
-  detect_hbonds.py path/to/step2_out.pdb --out_dir <path/to/other/location>
 """
 import argparse
 from collections import defaultdict
@@ -53,8 +47,7 @@ Criteria:
   H Atom Charge for H bond Donor                       : > {MIN_HCRG:3.1f}
 """
 
-# Default input file name
-in_file = "step2_out.pdb"
+
 # Output files common endings; an actual file may be 4lzt_hah.txt
 out_file = "hah.txt"
 blocking_file = "blocking.txt"
@@ -77,7 +70,12 @@ class Atom:
     def loadline(self, line):
         self.atom_name = line[12:16]
         self.res_name = line[17:20]
-        self.res_seq = int(line[22:26])
+        try:
+            self.res_seq = int(line[22:26])
+        except ValueError:
+            print("The input pdb is not in mcce format (as in step2_out.pdb)")
+            sys.exit(1)
+
         self.chain_id = line[21]
         self.iCode = line[26]
         self.xyz = (float(line[30:38]), float(line[38:46]), float(line[46:54]))
@@ -289,15 +287,23 @@ def detect_hbonds(pdb_file: str, include_bk: bool = False, no_empty_files: bool 
 
     return 1,1
 
+# mcce4_tools/detect_hbonds cmd
+USAGE = """
+  detect_hbonds [step2_out.pdb]
+  detect_hbonds --out_dir <path/to/location/different/from/pdb/parent/folder>
+  detect_hbonds path/to/step2_out.pdb --no_bk
+  detect_hbonds path/to/step2_out.pdb --out_dir <path/to/other/location>
+"""
 
 def cli_parser():
     p = argparse.ArgumentParser(prog="detect_hbonds",
-        description="Detect hydrogen bonds between conformer atoms."
+        description="Detect hydrogen bonds between conformer atoms.",
+        usage=USAGE,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    p.add_argument("inpdb",
-                    metavar="inpdb",
-                    default=in_file,
-                    nargs="?",
+    p.add_argument("-inpdb",
+                    default="step2_out.pdb",
+                    type=str,
                     help="Input pdb file in mcce format. Default: %(default)s.",
                     )
     p.add_argument("--include_bk",
@@ -336,7 +342,3 @@ def cli(argv=None):
     result = detect_hbonds(args.inpdb, args.include_bk, args.no_empty_files, args.out_dir)
     if result[0]:
         print("hbonds collection over.")
-
-
-if __name__ == "__main__":
-    cli(sys.argv[:1])
