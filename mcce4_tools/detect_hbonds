@@ -1,0 +1,14 @@
+#!/usr/bin/env python3
+
+"""
+Tool file:  detect_hbonds
+
+Codebase: /mcce4/detect_hbonds.py
+"""
+import sys
+
+from mcce4.detect_hbonds import cli
+
+
+if __name__ == "__main__":
+    sys.exit(cli())
