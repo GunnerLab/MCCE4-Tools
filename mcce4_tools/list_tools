@@ -1,0 +1,6 @@
+#!/bin/bash
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+CLONE_PATH="$(dirname "$SCRIPT_DIR")"
+
+cat "$CLONE_PATH"/mcce4_tools/tools.info
