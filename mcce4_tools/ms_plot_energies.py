@@ -13,7 +13,6 @@ import argparse
 import logging
 from pathlib import Path
 import re
-
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy.stats import skewnorm
@@ -23,12 +22,12 @@ from scipy.stats import skewnorm
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-
 def parse_microstate_energies(pdb_dir: Path):
     """Extracts microstate energies from microstates PDB files created with
     `ms_sampled_ms_to_pdbs.py` in the given directory and counts the files.
     """
-    energy_pattern = re.compile(r"REMARK 250\s+ENERGY\s+:\s+(-?\d+\.\d+)")
+    # Updated pattern to capture numbers with optional commas
+    energy_pattern = re.compile(r"REMARK 250\s+ENERGY\s+:\s+([-\d,]+\.\d+)")
     energies = []
     pdb_count = 0  # To count the number of PDB files processed
 
@@ -38,11 +37,12 @@ def parse_microstate_energies(pdb_dir: Path):
             for line in file:
                 match = energy_pattern.search(line)
                 if match:
-                    energies.append(float(match.group(1)))
+                    # Remove commas before converting to float
+                    energy_str = match.group(1).replace(',', '')
+                    energies.append(float(energy_str))
                     break  # Stop after finding the first energy in the file
 
     return np.array(energies), pdb_count
-
 
 def plot_microstate_energy_histogram(
     energies,
