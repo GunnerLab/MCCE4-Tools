@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 
 """
-Module: ms_plot_energies.py
-
+Tool file: ms_plot_energies
 Plot the microstate energies from microstates PDB files created with `ms_sampled_ms_to_pdbs.py`.
 
-Created on Apr 01 09:00:00 2025
-
-@author: Gehan Ranepura
+Author: Gehan Ranepura
+Created: Apr 01, 2025
 """
+
 import argparse
 import logging
 from pathlib import Path
@@ -106,7 +105,7 @@ if __name__ == "__main__":
         nargs="?",
         default="ms_pdb_output",
         type=Path,
-        help="Directory containing PDB files (default: pdb_output_mc)",
+        help="Directory containing PDB files (default: ms_pdb_output)",
     )
     parser.add_argument(
         "-out_dir",
