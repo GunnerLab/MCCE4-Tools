@@ -96,6 +96,9 @@ pdbs2pse          :: Bundle a list of pdbs into a Pymol seesion.
 
 postrun           :: Flags problem residues: non-canonical charge, high chi^2 or no fit.
 
+sumcrg_pI         :: Obtain the pI extrapolated from sum_crg.out Net_Charge.
+                     Minimal usage: sumcrg_pI  # current dir is a mcce run
+
 #..................................................................................................
 Tools help:  For information and usage on each tool, run:
 

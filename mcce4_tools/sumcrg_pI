@@ -1,0 +1,81 @@
+#!/usr/bin/env python3
+
+"""
+Tool: sumcrg_pI
+
+Obtain the pI extrapolated from sum_crg.out Net_Charge and the number of roots.
+The pI is obtained from the FIRST root of the extrapolated curve.
+The number of roots is expected to be 1 when no residue coupling is present.
+
+Note: There must be at least two titration points in sum_crg.out
+"""
+import argparse
+from pathlib import Path
+import sys
+from typing import Tuple
+
+import numpy as np
+from scipy.interpolate import CubicSpline
+from scipy.optimize import fsolve
+
+
+def sumcrg_pI(mcce_dir: str) -> Tuple:
+    """Return the pI extrapolated from sum_crg.out Net_Charge and the number of roots.
+    Args:
+     - mcce_dir (str): Path to a mcce run
+    Returns:
+     - A 2-tuple: pI (from the first root of the extrapolated curve), number of roots, 
+       which is expected to be 1 when no residue coupling is present.
+    Usage:
+     pI, n_roots = sumcrg_pI("./4LZT")
+    """
+    run_dir = Path(mcce_dir)
+    sumcrg_fp = run_dir.joinpath("sum_crg.out")
+    if not sumcrg_fp.exists():
+        print(f"Not found: sum_crg.out in {run_dir!s}")
+        return
+    
+    with open(sumcrg_fp) as fh:
+        for lx, line in enumerate(fh):
+            if lx == 0:
+                x = np.array([float(ph) for ph in line.split()[1:]])
+                if len(x) < 2:
+                    sys.exit("Not possible: There must be at least two titration points in sum_crg.out.") 
+            else:
+                if not line.startswith("Net_Charge"):
+                    continue
+                y = np.array([float(net) for net in line.split()[1:]])
+                break
+
+    spl = CubicSpline(x, y)
+    guess = 7.
+    roots = fsolve(spl, guess)
+
+    return round(roots[0],2), len(roots)
+
+
+def cli(argv=None):
+    parser = argparse.ArgumentParser(
+        prog="sumcrg_pI",
+        description="Obtain the pI extrapolated from sum_crg.out Net_Charge and the number of roots."
+    )
+    parser.add_argument(
+        "-run_dir",
+        type=str,
+        default=".",
+        help="MCCE run dir (default: %(default)s)"
+    )
+    args = parser.parse_args(argv)
+
+    run_dir = Path(args.run_dir).resolve()
+    pI, n_roots = sumcrg_pI(run_dir)
+    if n_roots == 1:
+        print(f"pI = {pI:.2f} (Roots: {n_roots})")
+    else:
+        print(f"pI = {pI:.2f} (Roots: {n_roots} :: Not 1 => Coupling detected.)")
+
+    return
+
+
+if __name__ == "__main__":
+    sys.exit(cli())
