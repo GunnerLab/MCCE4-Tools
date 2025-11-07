@@ -2,10 +2,10 @@
 
 """
 Module:
-    ms_sampled_ms_to_pdbs.py
+    ms_sample_to_pdbs.py
 
 Purpose:
-    To generate a random set mcce microsates in step2_out pdb format 
+    To generate a random set of mcce microsates in step2_out pdb format 
     whose set size is user-defined.
 
 Usage:
@@ -213,7 +213,7 @@ def cli_parser():
         return Path(p).resolve()
 
     p = ArgumentParser(
-        prog="MCCE4 sampled_ms_to_pdbs",
+        prog="ms_sample_to_pdbs",
         description=HELP,
         formatter_class=RawDescriptionHelpFormatter,
         epilog=CLI_EPILOG
