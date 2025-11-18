@@ -9,7 +9,7 @@ step2_out.pdb by default, and outputs their list to file <pdb folder>/hah.txt.
 A H-bond-blocking atoms list is also output to file <pdb folder>/blocking.txt if any
 are found.
 The input pdb file is first parsed for coordinate lines, which can include or exclude
-backbone atoms as per users' choice passed with the --no_bk option; they are included
+backbone atoms as per users' choice passed with the --include_bk flag; they are excluded
 by default.
 This script is self-contained, with numpy as only dependency and can be run independently
 of the MCCE4 codebase.
@@ -26,6 +26,9 @@ import sys
 from typing import Tuple
 
 import numpy as np
+
+
+H_REGEX = re.compile(r"(^[0-9]|^[a-z])?H")
 
 
 # The H-bond distance parameters are roughly based on https://ctlee.github.io/BioChemCoRe-2018/h-bond/
@@ -84,9 +87,9 @@ class Atom:
         self.confType = "%3s%2s" % (self.res_name, line[80:82])
         self.confID = "%5s%c%04d%c%03d" % (self.confType, self.chain_id, self.res_seq, self.iCode, self.confNum)
 
-    def is_H(self):
-        atom = self.atom_name.strip()
-        return (len(atom) < 4 and self.atom_name[1] == "H") or (len(atom) == 4 and self.atom_name[0] == "H")
+    def is_H(self) -> bool:
+        """Check if an atom name corresponds to a hydrogen atom."""
+        return H_REGEX.match(self.atom_name.strip()) is not None
 
     def resid(self):
         return self.confID[:3] + self.confID[5:11]
