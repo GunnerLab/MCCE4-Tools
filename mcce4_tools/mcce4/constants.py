@@ -28,6 +28,17 @@ CANONICAL = {
     "CYS": 0,
     }
 
+SOLUTION_PKAS = {
+    "ASP": 3.9,
+    "GLU": 4.3,
+    "CYS": 8.3,
+    "ARG": 12.5,
+    "HIS": 6.0,
+    "LYS": 10.5,
+    "TYR": 10.1,
+    "NTR": 8.0,
+    "CTR": 3.1}
+
 COMMON_IONIZ_RANGES = {
     "NTR+": (5, 9),
     "ASP-": (2, 6),
