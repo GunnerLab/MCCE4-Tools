@@ -3,8 +3,8 @@ Default or example parameter files for command line tools.
 
 * ms_rptonation tool:
 Files with extension ".crgms" are meant for use with the `ms_protonation` command-line tool.
-Make a local copy to your wroking dir 'some_dir':
+Make a local copy to your working dir 'some_dir':
     cd some_dir
-    cp /home/<user>/path_to_clone/MCCE4-Tools/cli_parameters_files/params.crgms .
-    # maybe edit the file, then run the full command:
+    cp path_to_clone/MCCE4-Tools/mcce4_tools/tool_param/params.crgms .
+    # Edit the file, then run the full command:
     ms_rotonation params.crgms
