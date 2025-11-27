@@ -53,6 +53,11 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 
+def table_to_df(file_fp: str) -> pd.DataFrame:
+    """Load a fixed-width table in to a pandas.DataFrame."""
+    return pd.read_fwf(file_fp)
+
+
 def reader_gen(fpath: Path):
     """Generator function yielding a file line."""
     with open(fpath) as fh:
