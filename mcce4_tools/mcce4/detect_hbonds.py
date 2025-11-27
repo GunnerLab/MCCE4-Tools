@@ -142,7 +142,7 @@ def get_record_lines(records: list, rec_type: str=None) -> list:
     """
     lines = []
     if rec_type == "hbond":
-        fmt = "{:<15} {:<15} {:>16} {:5.2f}  {:3.0f}  {}  {}\n"
+        fmt = "{:<15} {:<15} {:>16} {:5.2f}  {:3.0f}   {};{}\n"
         for record in records:
             donor, h, acceptor, distance, angle, xyzd, xyza = record
             hbatms = "{:>}~{:<}...{:<4}".format(donor.atom_name.strip(),
@@ -152,7 +152,9 @@ def get_record_lines(records: list, rec_type: str=None) -> list:
                               acceptor.confID,
                               hbatms,
                               distance, angle,
-                              xyzd, xyza)
+                              # space-less tuples:
+                              xyzd.__str__().replace(" ",""), 
+                              xyza.__str__().replace(" ",""))
             lines.append(line)
     else:
         fmt ="{}  {}  {}--{}~{} {:3.0f}\n"
@@ -308,7 +310,7 @@ def detect_hbonds(pdb_file: str, no_bk: bool = False,
                                                       acceptor.xyz))
 
     with open(hah_fp, "w") as hah:
-        hah.write("confid_donor    confid_acceptor hb_atoms         dist  angle xyz_donor               xyz_acceptor\n")
+        hah.write("confid_donor    confid_acceptor hb_atoms         dist  angle  xyz\n")
         hah.writelines(get_record_lines(hbond_records, rec_type="hbond"))
     print(f"Output file: {hah_fp!s}")
 
