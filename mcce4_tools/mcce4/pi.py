@@ -259,14 +259,18 @@ def protein_pI(args: Namespace):
     return
 
 
+DESC =f"""
+  Calculate the theoretical pI (isoelectric point) of a protein.
+  If sum_crg.out is found, then the protein pI and delta pI are also calculated.
+  Solution pKas in use (mcce4_tools/mcce4/constants.py):\n  {SOLUTION_PKAS}
+"""
+
+
 def cli_parser():
     p = ArgumentParser(
         prog="pI",
         formatter_class=RawTextHelpFormatter,
-        description="""
-        Obtain the theoretical pI of the input protein pdb file.
-        If sum_crg.out is found, then the protein pI and delta pI are also calculated.
-        """
+        description=DESC
     )
     p.add_argument(
         "pdb",
