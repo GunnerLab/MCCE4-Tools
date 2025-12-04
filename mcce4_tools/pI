@@ -8,6 +8,8 @@ If 'sum_crg.out' exists in the pdb parent folder, then the protein pI is also
 calculated, along with the delta (protein pI - theoretical pI).
 
 Note: There must be at least 10 titration points in sum_crg.out.
+
+Code base: mcce4_tools/mcce4/pi.py
 """
 import sys
 
