@@ -53,6 +53,11 @@ md_fix_psf_mdanalysis :: Test the instantiation of a MDAnalysis.Universe given a
 Tools for mcce microstates processing: "ms_" prefix.
 ....................................................
 
+ms_hbnets          :: Obtain the count and occupancy of H-bonding pairs (output of detect_hbonds),
+                      and microstates via efficient processing of the 'msout file'.
+                      Minimal usage examples: ms_hbnets; ms_hbnets -n_states 30000
+--------------------------------------------------------------------------------------------------
+
 ms_hbnets1_mspdbs  :: Generate a random sample of MCCE microstates in pdb format.
                       Minimal usage: ms_hbnets1_mspdbs
 --------------------------------------------------------------------------------------------------
