@@ -33,8 +33,13 @@
         ```
          conda env create -f mct4.yml -n new_env
         ```
-      * __NOTE__
-      Although pymol is necessary for certain tools, it is not included in `mct4.yml` due to licensing; installation details for PyMOL 3.1 (Version 3.1.6.1) is [here](https://www.pymol.org/)
+      
+    - To update your environment:
+      ```
+       conda env update -n mct4 -f mct4.yml
+      ```
+    * __NOTE__
+    Although pymol is necessary for certain tools, it is not included in `mct4.yml` due to licensing; installation details for PyMOL 3.1 (Version 3.1.6.1) is [here](https://www.pymol.org/)
 
   6. Test a tool
     * Activate your environment, e.g. `conda activate mct4`
