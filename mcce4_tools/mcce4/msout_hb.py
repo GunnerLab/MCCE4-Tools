@@ -86,8 +86,8 @@ def get_hb_paths(mcce_dir: Path, ph: str = "7", eh: str = "0") -> Tuple[Path]:
 
     return (h3_fp, step2_fp, msout_fp, hah_fp,
             mcce_dir.joinpath(fHAH_EXPANDED.format(pheh)),
-            h3_fp.with_name("hb_pairs.csv"),
-            h3_fp.with_name("hb_states.csv"))
+            h3_fp.with_name(f"hb_pairs_{pheh}.csv"),
+            h3_fp.with_name(f"hb_states{pheh}.csv"))
 
 
 def get_msout_size_info(msout_fp: Path,
@@ -432,7 +432,7 @@ class MSout_hb:
          """
         if self.hah_fp is None:
             if self.verbose:
-                print("Running detect_hbonds...")
+                print("Running default detect_hbonds (with BK)...")
             self.run_detect_hbonds()
         
         df = table_to_df(self.hah_fp)
