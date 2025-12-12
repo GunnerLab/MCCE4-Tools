@@ -28,6 +28,7 @@ CANONICAL = {
     "CYS": 0,
     }
 
+# ref: https://chem.libretexts.org/Courses/University_of_Arkansas_Little_Rock/CHEM_4320_5320%3A_Biochemistry_1/01%3A_Amino_Acids/1.4%3A_Reactions_of_Amino_Acids/1.4.1_Acid-base_Chemistry_of_Amino_Acids
 SOLUTION_PKAS = {
     "ASP": 3.9,
     "GLU": 4.3,
@@ -37,7 +38,8 @@ SOLUTION_PKAS = {
     "LYS": 10.5,
     "TYR": 10.1,
     "NTR": 8.0,
-    "CTR": 3.1}
+    "CTR": 3.1
+}
 
 COMMON_IONIZ_RANGES = {
     "NTR+": (5, 9),
