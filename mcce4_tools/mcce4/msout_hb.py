@@ -42,6 +42,7 @@ from mcce4.ms_split_msout import split_mc_file
 N_HDR = 6      # min header lines in msout file (non mc data)
 MC_METHODS = ["MONTERUNS", "ENUMERATE"]
 MIN_OCC = 0.0  # occ threshold
+N_STATES = 25000  # target number of hb states to return
 
 HAH_FNAME_INIT = "step2_out_hah.txt"
 # output filename as fstring formats to receive MSout_hb.pheh_str,
@@ -92,7 +93,7 @@ def get_hb_paths(mcce_dir: Path, ph: str = "7", eh: str = "0") -> Tuple[Path]:
 
 
 def get_msout_size_info(msout_fp: Path,
-                        n_target_states: int = 10_000) -> Tuple[int, int, int]:
+                        n_target_states: int = N_STATES) -> Tuple[int, int, int]:
     """Return n_lines, n_skip_lines, n_mc_runs
     """
     mso = str(msout_fp)
@@ -193,12 +194,16 @@ class ConfInfo:
     """This class handles the loading of head3 data into a numpy array
     and provides accessor functions.
     """
-    def __init__(self, h3_fp: Path):
+    def __init__(self, h3_fp: Path, verbose: bool = False):
         self.h3_fp = h3_fp
         self.conf_info: np.ndarray = None
         self.n_confs: int = None
         self.max_ic, self.max_ir = None, None
         self.background_crg: int = None
+        self.verbose = verbose
+
+        return
+    
 
     def load(self, iconf2ires: Dict, fixed_iconfs: List[int]):
         """Popuate the 'conf_info' attribute (np.ndarray): a lookup 'table' for:
@@ -232,9 +237,9 @@ class ConfInfo:
         conf_info[np.where((conf_info[:,-1]==0) 
                             & np.logical_not(np.isin(conf_info[:,2], fixed_iconfs))
                           ), 3] = 1
-
-        print(" Head3 lookup array 'conf_info' fields:", 
-              "confid:0, crg:1, cx:2, off:3, rx:4, is_free:5")
+        if self.verbose:
+            print(" Head3 lookup array 'conf_info' fields:", 
+                "confid:0, crg:1, cx:2, off:3, rx:4, is_free:5")
         self.n_confs = conf_info.shape[0]
         self.max_iconf, self.max_ires = np.max(conf_info[:,[2,4]], axis=0)
         # sumcrg for not is_free:
@@ -311,8 +316,10 @@ class MSout_hb:
         - head3_file, msout_file (str): Paths to head3.lst & msout files.
     """
     def __init__(self, mcce_dir: str, ph: str = "7", eh: str = "0",
-                 n_target_states: int = 25_000, interactive: bool = False):
-
+                 n_target_states: int = 25_000,
+                 interactive: bool = False,
+                 verbose: bool = False):
+        self.verbose = verbose
         self.run_dir = Path(mcce_dir)
         print(f"Run dir: {self.run_dir!s}")
 
@@ -346,7 +353,7 @@ class MSout_hb:
         # conformer info -> conf_info head3 & HDR lookup array
         # fields: confid:0, crg:1, ic:2, off:3, ir:4, is_free:5
         start_t = time.time()
-        self.CI = ConfInfo(self.h3_fp)
+        self.CI = ConfInfo(self.h3_fp, verbose=self.verbose)
         # load the self.CI.conf_info lookup array:
         self.CI.load(self.HDR.iconf2ires, self.HDR.fixed_iconfs)
         # + CI.n_confs, CI.max_ic, CI.max_ir
@@ -380,8 +387,9 @@ class MSout_hb:
         self.M = self.get_hah_matrix()
         if self.M is None:
             sys.exit("Could not create the hb pairs matrix.")
-        # mat_pair_i, mat_pair_j = self.M.nonzero()
-        # print("Mij set to 1 in matrix:", list(zip(mat_pair_i, mat_pair_j)), sep="\n")
+        if self.verbose:
+            mat_pair_i, mat_pair_j = self.M.nonzero()
+            print("Mij set to 1 in matrix:", list(zip(mat_pair_i, mat_pair_j)), sep="\n")
         show_elapsed_time(start_t, info="Creating the hb pairs matrix M")
 
         # Attributes populated by the 'load_ms_hb' function:
@@ -397,7 +405,7 @@ class MSout_hb:
         self.load_ms_hb()
         show_elapsed_time(start_t, info="Loading msout for H-bond data")
 
-        print("Converting Mij to confid, updating the expanded file with pairs data",
+        print("Converting Mij to confid, updating the expanded file with pairs data, if any",
               "& saving dicts to csv files...", sep="\n")
         start_t = time.time()
         self.dicts2csv()
@@ -464,8 +472,7 @@ class MSout_hb:
 
         return df
 
-    @staticmethod
-    def get_fixed_or_bk_confids(df: pd.DataFrame) -> List:
+    def get_fixed_or_bk_confids(self, df: pd.DataFrame) -> List:
         """Return lists for fixed and bk confids for each donor/acceptor:
            fid, fixa, bkd, bka (in that order).
         """
@@ -496,13 +503,17 @@ class MSout_hb:
                         if len(gp.groups):
                             keys = list(gp.indices.keys())  # unique & sorted
                             params[cx][k]["lst"].extend(keys)
-                            #print(f" Class {cx}: Extended slots for {K[i]} {kcol!r}: {len(keys)}")
-                        # else:
-                        #     print(f" Class {cx}: No extended slots for {K[i]} {kcol!r}")
-                    # else:
-                    #     print(f" Class {cx}: No extended slots for {K[i]} {kcol!r}")
-            # else:
-            #     print(f" No extended slots for empty pair class {cx}")
+                            if self.verbose:
+                                print(f" Class {cx}: Extended slots for {K[i]} {kcol!r}: {len(keys)}")
+                        else:
+                            if self.verbose:
+                                print(f" Class {cx}: No extended slots for {K[i]} {kcol!r}")
+                    else:
+                        if self.verbose:
+                            print(f" Class {cx}: No extended slots for {K[i]} {kcol!r}")
+            else:
+                if self.verbose:
+                    print(f" No extended slots for empty pair class {cx}")
 
         return fixd, fixa, bkd, bka
 
@@ -531,13 +542,11 @@ class MSout_hb:
                 self.mat_res.extend([[dic] for dic in self.dm_iconfs])
                 assert len(self.mat_res) == n_free_res + self.n_fx + self.n_bk
                 ix = ix + self.n_fx + 1 # 1st index of bk slots
-                #print(f" ix for bk dmics, with fx: {ix = }")
         else:
             if self.n_bk:
                 self.mat_res.extend([[dic] for dic in self.dm_iconfs])
                 assert len(self.mat_res) == n_free_res + self.n_bk
                 ix = ix + self.n_bk + 1
-                #print(f" ix for bk dmics, no fx: {ix = }")
         
         if self.n_bk:
             self.bkid2dmic = {}
@@ -561,10 +570,11 @@ class MSout_hb:
         self.mat_iconfs = list(self.mat_iconf2ires.keys())
         self.n_mat_ics = len(self.mat_iconfs)
         N = n_free_res + self.n_fx + self.n_bk
-        print("Check:",
-              f"n_free_res {n_free_res} + n_fixed {self.n_fx} +",
-              f"n_bk {self.n_bk} ?= n_mat_res {self.n_mat_res} ::",
-              f"{N==self.n_mat_res}")
+        if self.verbose:
+            print("Check:",
+                f"n_free_res {n_free_res} + n_fixed {self.n_fx} +",
+                f"n_bk {self.n_bk} ?= n_mat_res {self.n_mat_res} ::",
+                f"{N==self.n_mat_res}")
         
         return
 
@@ -785,7 +795,6 @@ class MSout_hb:
                         hb_pairs[p][0] += count
 
                     if mc_lines % self.n_skip == 0:
-                    #if self.mc_lines % self.n_skip == 0:
                         hb_states[tuple(nij)][0] += count
 
         self.hb_pairs = dict(hb_pairs)
@@ -810,39 +819,39 @@ class MSout_hb:
         print(f"H-bonding pairs: {len(self.hb_pairs):,}")
         if mc_lines != self.mc_lines:
             # accepted ms with flipped iconfs
-            print(f"Count of mc lines in load_ms_hb: {mc_lines:,}")
-        print(f"Accepted states lines: ~ {self.mc_lines:,}\n")
+            print(f"Processed mc lines: {mc_lines:,}")
+        else:
+            print(f"Accepted states lines: ~ {self.mc_lines:,}\n")
 
         return
 
     def dicts2csv(self):
-        # hb pairs:
-        dfp = pd.DataFrame.from_dict(self.hb_pairs, orient='index',
-                                     columns = ["ms_count","ms_occ"]).reset_index()
-        dfp = dfp.rename({"index":"Mij"}, axis=1)
-        dfp[["Mi","Mj"]] = dfp["Mij"].apply(lambda x: pd.Series([x[0],x[1]]))
-        dfp[["donor","acceptor"]] = dfp["Mij"].apply(lambda x: pd.Series([self.mat_ires2confid[x[0]],
-                                                                          self.mat_ires2confid[x[1]]]))
-        dfp = dfp.sort_values(by="ms_count", ascending=False)
-        dfp[["Mij","donor","acceptor", "ms_count","ms_occ"]].to_csv(self.pairs_csv, index=False)
+        if self.hb_pairs:
+            dfp = pd.DataFrame.from_dict(self.hb_pairs, orient='index',
+                                         columns = ["ms_count","ms_occ"]).reset_index()
+            dfp = dfp.rename({"index":"Mij"}, axis=1)
+            dfp[["Mi","Mj"]] = dfp["Mij"].apply(lambda x: pd.Series([x[0],x[1]]))
+            dfp[["donor","acceptor"]] = dfp["Mij"].apply(lambda x: pd.Series([self.mat_ires2confid[x[0]],
+                                                                            self.mat_ires2confid[x[1]]]))
+            dfp = dfp.sort_values(by="ms_count", ascending=False)
+            dfp[["Mij","donor","acceptor","ms_count","ms_occ"]].to_csv(self.pairs_csv, index=False)
 
-        # update expanded hah file:
-        dfp = dfp.drop(columns=["Mij"])
-        hah_df = pd.read_csv(self.hah_ms_fp, sep="\t")
-        hah_df = hah_df.merge(dfp, left_on=["Mi","Mj"], right_on=["Mi","Mj"])
-        hah_df.to_csv(self.hah_ms_fp, index=False)
+            # update expanded hah file:
+            dfp = dfp.drop(columns=["Mij","donor","acceptor"])
+            hah_df = pd.read_csv(self.hah_ms_fp, sep="\t")
+            hah_df = hah_df.merge(dfp, left_on=["Mi","Mj"], right_on=["Mi","Mj"])
+            hah_df.to_csv(self.hah_ms_fp, index=False)
 
-        # hb states:
-        dfs = pd.DataFrame.from_dict(self.hb_states, orient='index',
-                                     columns = ["ms_count","ms_occ"]).reset_index()
-        dfs["state_id"] = None
-        for rx, ro in dfs.iterrows():
-            dfs.loc[rx,"state_id"] = ", ".join(f"({self.mat_ires2confid[tp[0]]},{self.mat_ires2confid[tp[1]]})"
-                                                for tp in ro["index"])
-        dfs = dfs[["state_id", "ms_count","ms_occ"]]
-        dfs = dfs.sort_values(by="ms_count", ascending=False)
-        fp = self.h3_fp.with_name("hb_states.csv")
-        dfs.to_csv(self.states_csv, index=False)
+        if self.hb_states:
+            dfs = pd.DataFrame.from_dict(self.hb_states, orient='index',
+                                        columns = ["ms_count","ms_occ"]).reset_index()
+            dfs["state_id"] = None
+            for rx, ro in dfs.iterrows():
+                dfs.loc[rx,"state_id"] = ", ".join(f"({self.mat_ires2confid[tp[0]]},{self.mat_ires2confid[tp[1]]})"
+                                                    for tp in ro["index"])
+            dfs = dfs[["state_id", "ms_count","ms_occ"]]
+            dfs = dfs.sort_values(by="ms_count", ascending=False)
+            dfs.to_csv(self.states_csv, index=False)
 
         return
 
@@ -874,6 +883,7 @@ def cli_parser():
                     type=str,
                     help="MCCE run directory; Default: %(default)s",
                     )
+    # ph, eh: as strings to easily determine the precision
     p.add_argument("-ph",
                     default="7",
                     type=str,
@@ -885,9 +895,14 @@ def cli_parser():
                     help="Titration Eh; Default: %(default)s"
                     )
     p.add_argument("-n_states",
-                    default="25000",
+                    default=N_STATES,
                     type=int,
                     help="Number of hb states to return, possibly; Default: %(default)s"
+                    )
+    p.add_argument("-v", "--verbose",
+                    action="store_true",
+                    default=False,
+                    help="To ouput more details; Default: %(default)s"
                     )
     return p
 
@@ -896,7 +911,7 @@ def cli(argv=None):
     p = cli_parser()
     args = p.parse_args(argv)
 
-    mshb = MSout_hb(args.mcce_dir, args.ph, args.eh, args.n_states)
+    mshb = MSout_hb(args.mcce_dir, args.ph, args.eh, args.n_states, args.verbose)
     print("Microstates H_bonds collection over.")
 
     return
