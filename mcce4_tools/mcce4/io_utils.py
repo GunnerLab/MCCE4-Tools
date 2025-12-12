@@ -38,11 +38,12 @@ Provides these helper functions:
 """
 import logging
 from pathlib import Path
+import pickle
 import subprocess
 from subprocess import CompletedProcess, CalledProcessError
 import sys
 import time
-from typing import Callable, List, Tuple, Union
+from typing import Any, Callable, List, Tuple, Union
 
 import pandas as pd
 from pandas.api.types import is_object_dtype
@@ -212,6 +213,15 @@ def get_unique_filename(filepath: str) -> str:
         new_path = parent_dir / f"{file_stem}_{n}{file_suffix}"
 
     return str(new_path)
+
+
+def to_pickle(obj: Any, fp: str):
+    pickle.dump(obj, open(fp, "wb"))
+    return
+
+
+def from_pickle(fp: str) -> Any:
+    return pickle.load(open(fp, "rb"))
 
 
 class MsgFmt:
