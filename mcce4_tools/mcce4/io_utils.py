@@ -75,9 +75,9 @@ def show_elapsed_time(start_t: time, info: str = None, writer: Callable = print)
     """
     elapsed = time.time() - start_t
     if info is None:
-        msg = f"Elapsed time: {elapsed:,.2f} s ({elapsed/60:,.2f} min).\n"
+        msg = f"Elapsed time: {elapsed:,.2f} s ({elapsed/60:,.2f} min)\n"
     else:
-        msg = f"Elapsed time - {info}: {elapsed:,.2f} s ({elapsed/60:,.2f} min).\n"
+        msg = f"Elapsed time - {info}: {elapsed:,.2f} s ({elapsed/60:,.2f} min)\n"
 
     writer(msg)
 

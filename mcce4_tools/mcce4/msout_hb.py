@@ -13,10 +13,8 @@ CHANGELOG:
 """
 from argparse import ArgumentParser, Namespace, RawDescriptionHelpFormatter
 from collections import defaultdict
-from dataclasses import dataclass
 from itertools import islice
 from pathlib import Path
-from shutil import copyfile
 import sys
 import time
 from typing import Dict, List, Tuple, Union
@@ -433,6 +431,8 @@ class MSout_hb:
            create a reduced file.
          """
         if self.hah_fp is None:
+            if self.verbose:
+                print("Running detect_hbonds...")
             self.run_detect_hbonds()
         
         df = table_to_df(self.hah_fp)
@@ -444,6 +444,8 @@ class MSout_hb:
         print(f"H-bonding pairs in {self.hah_fp.name!s}: {df.shape[0]}")
         if self.hah_fp.name==HAH_FNAME_INIT:
             df = self.reduce_hah_file(df)
+        if self.verbose:
+            print(f"Loaded {self.hah_fp.name!s} into a dataframe with {df.shape[0]} rows")
 
         return df
 
@@ -472,9 +474,10 @@ class MSout_hb:
 
         return df
 
-    def get_fixed_or_bk_confids(self, df: pd.DataFrame) -> List:
+    @staticmethod
+    def get_fixed_or_bk_confids(df: pd.DataFrame, verbose: bool = False) -> Tuple[List[str],List[str],List[str],List[str]]:
         """Return lists for fixed and bk confids for each donor/acceptor:
-           fid, fixa, bkd, bka (in that order).
+           fixd, fixa, bkd, bka (in that order).
         """
         # Operations on pair_class > 1, includes all mixed pairs
         # class 2::donor is free; class 3::acceptor is free
@@ -503,16 +506,16 @@ class MSout_hb:
                         if len(gp.groups):
                             keys = list(gp.indices.keys())  # unique & sorted
                             params[cx][k]["lst"].extend(keys)
-                            if self.verbose:
+                            if verbose:
                                 print(f" Class {cx}: Extended slots for {K[i]} {kcol!r}: {len(keys)}")
                         else:
-                            if self.verbose:
+                            if verbose:
                                 print(f" Class {cx}: No extended slots for {K[i]} {kcol!r}")
                     else:
-                        if self.verbose:
+                        if verbose:
                             print(f" Class {cx}: No extended slots for {K[i]} {kcol!r}")
             else:
-                if self.verbose:
+                if verbose:
                     print(f" No extended slots for empty pair class {cx}")
 
         return fixd, fixa, bkd, bka
@@ -525,8 +528,9 @@ class MSout_hb:
             self.mat_iconf2ires = self.HDR.iconf2ires
             self.mat_iconfs = self.HDR.free_iconfs
             self.n_mat_ics = self.HDR.n_free_ics
-            self.mat_ires2confid = [self.CI.get_confid(iconf)
-                                 for iconf in self.mat_iconfs]
+            self.mat_ires2confid = dict((ires, self.CI.get_confid(iconf))
+                                         for ires, lst in enumerate(self.mat_res)
+                                         for iconf in lst)
             return
 
         self.mat_res = self.HDR.free_residues.copy()
@@ -657,8 +661,8 @@ class MSout_hb:
         # fixed & bk iconfs will have NaN:
         df.loc[free_msk, "Mi"] = df.loc[free_msk,"iconf1"].apply(get_Mx)
         df.loc[free_msk, "Mj"] = df.loc[free_msk,"iconf2"].apply(get_Mx)
-
-        fixd, fixa, bkd, bka = self.get_fixed_or_bk_confids(df)
+        print(f"debug, before get_fixed_or_bk_confids: {df.shape}")
+        fixd, fixa, bkd, bka = MSout_hb.get_fixed_or_bk_confids(df, self.verbose)
         self.get_extended_iconfs(fixd, fixa, bkd, bka)
         self.set_extended_accessors()
 
