@@ -36,6 +36,7 @@ Provides these helper functions:
 
  * class MsgFmt: Callable class to preclude eager execution of f-strings in logging.
 """
+from itertools import islice
 import logging
 from pathlib import Path
 import pickle
@@ -43,15 +44,120 @@ import subprocess
 from subprocess import CompletedProcess, CalledProcessError
 import sys
 import time
-from typing import Any, Callable, List, Tuple, Union
+from typing import Any, Callable, Dict, List, Tuple, Union
 
+import numpy as np
 import pandas as pd
 from pandas.api.types import is_object_dtype
+
+from mcce4.constants import ROOMT
 
 
 logging.basicConfig(format="[ %(levelname)s ] %(funcName)s:\n  %(message)s")
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
+
+
+N_HDR = 6      # min header lines in msout file (non mc data)
+N_STATES = 25000  # target number of hb states to return
+MC_METHODS = ["MONTERUNS", "ENUMERATE"]
+
+
+class MsoutHeaderData:
+    """This class handles the loading of the data in the header of a 'msout file'.
+    """
+    def __init__(self, msout_fp: Path):
+        self.msout_fp = msout_fp
+        self.T: float = ROOMT
+        self.pH: float = 7.0
+        self.Eh: float = 0.0
+        self.method: str = ""
+        self.is_monte: bool = False
+
+        self.fixed_iconfs: List[int] = []
+        self.n_fixed_ics: int = 0
+        self.free_residues: List[List[int]] = []
+        self.n_free_res: int = 0
+        self.iconf2ires: Dict = {}
+        self.free_iconfs: List[int] = []
+        self.n_free_ics: int = 0
+        
+        self.load()
+
+        return
+    
+    def load(self):
+        """Process an unadulterated 'msout file' header rows to populate
+        the class attributes.
+        """
+        with open(self.msout_fp) as fh:
+            head = list(islice(fh, N_HDR))
+        for i, line in enumerate(head, start=1):
+            if i == 1:
+                fields = line.split(",")
+                for field in fields:
+                    key, value = field.split(":")
+                    key = key.strip().upper()
+                    value = float(value)
+                    if key == "T":
+                        self.T = value
+                    elif key == "PH":
+                        self.pH = value
+                    elif key == "EH":
+                        self.Eh = value
+            if i == 2:
+                key, value = line.split(":")
+                self.method = value.strip().upper() 
+                if key.strip() != "METHOD" or self.method not in MC_METHODS:
+                    msg = (f"File {self.msout_fp!s} is not a valid microstate file; "
+                           "method: {self.method}")
+                    sys.exit(msg)
+
+                self.is_monte = self.method == "MONTERUNS"
+
+            if i == 4:
+                fix, iconfs = line.split(":")
+                self.fixed_iconfs = [int(i) for i in iconfs.split()]
+                self.n_fixed_ics = int(fix)
+            if i == 6:  # free residues
+                free, residues_str = line.split(":")
+                self.n_free_res = int(free)
+                residues = residues_str.split(";")
+                for f in residues:
+                    if f.strip():
+                        self.free_residues.append([int(i) for i in f.split()])
+                for idx, lst in enumerate(self.free_residues):
+                    for iconf in lst:
+                        self.iconf2ires[iconf] = idx
+
+        self.free_iconfs = list(self.iconf2ires.keys())
+        self.n_free_ics = len(self.free_iconfs)
+
+        return
+
+
+def get_msout_size_info(msout_fp: Path,
+                        n_target_states: int = N_STATES) -> Tuple[int, int, int]:
+    """Return n_lines, n_skip_lines, n_mc_runs
+    """
+    mso = str(msout_fp)
+    cmd = f"egrep '^MC' {mso}; wc -l {mso};"
+    out = subprocess_run(cmd, shell=True, check=True)
+    if isinstance(out, CalledProcessError):
+        print(out.stderr)
+        sys.exit(1)
+    out = out.stdout.splitlines()
+    n_mc_runs = len(out[:-1])
+    # to implement skipping accepted states every n lines:
+    # lines count is approximate
+    n_lines = int(out[-1].split()[0]) - N_HDR - 4  # - 2 if method not monte
+    n_skip_lines = int(np.floor(n_lines / n_target_states))
+    print(f"Microstates to be saved every {n_skip_lines:,} lines",
+          f"({n_lines=:,} / {n_target_states=:,})")
+    if n_mc_runs > 1:
+        print(f"The msout file {msout_fp!s} has {n_mc_runs} MC runs")
+
+    return n_lines, n_skip_lines, n_mc_runs
 
 
 def table_to_df(file_fp: str) -> pd.DataFrame:

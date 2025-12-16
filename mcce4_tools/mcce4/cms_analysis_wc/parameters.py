@@ -234,14 +234,13 @@ def get_resid2iconf_dict0(conf_info: np.ndarray) -> dict:
     return dict((ci[0], ci[1]) for ci in free_ci[:, [1, 0]])
 
 
-def check_res_list(correl_lst: list, res_lst: list = None, conf_info: np.ndarray = None) -> list:
+def check_res_list(correl_lst: list, res_lst: list, conf_info: np.ndarray) -> list:
     """Perform at most 2 checks on res_list depending on presence of the other arguments:
-    - Whether items in res_list are in other_list;
-    - Whether items in res_list are in the conformer space.
+    - Whether items in correl_lst are in res_list;
+    - Whether items in the validated correl_lst are in the free conformers space.
     """
-    if not res_lst and not conf_info:
-        logger.warning("Arguments 'conf_info' and 'res_lst' cannot both be None.")
-        return correl_lst
+    if conf_info is None or not len(conf_info):
+        sys.exit("Lookup array 'conf_info' is empty")
 
     new = []
     for res in correl_lst:
@@ -250,16 +249,13 @@ def check_res_list(correl_lst: list, res_lst: list = None, conf_info: np.ndarray
         else:
             logger.warning(f"Ignoring {res!r} from correl_lst: {res[:3]} not in residue_kinds.")
     correl_lst = new
-
-    if conf_info is not None:
-        free_ci = conf_info[np.where(conf_info[:, -3])]  # is_free field
+    if correl_lst:
+        free_ci = conf_info[np.where(conf_info[:, -3])==1]  # is_free field
         correl2 = deepcopy(correl_lst)
-        #res2iconf = get_resid2iconf_dict(conf_info)
-        for cr in correl_lst:
-            # check resid field:
-            if not len(free_ci[np.where(free_ci[:, 1] == cr)]):
-                logger.warning(f"Removing {cr!r} from correl_lst: not in conformer space.")
-                correl2.remove(cr)
+        for cid in correl_lst:  # check confid field:
+            if not len(free_ci[np.where(free_ci[:, 1] == cid)]):
+                logger.warning(f"Removing {cid!r} from correl_lst: not in free conformers space.")
+                correl2.remove(cid)
 
         return correl2
 
