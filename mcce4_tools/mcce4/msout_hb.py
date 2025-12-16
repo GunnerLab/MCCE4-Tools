@@ -11,9 +11,8 @@ Notes:
 
 CHANGELOG:
 """
-from argparse import ArgumentParser, Namespace, RawDescriptionHelpFormatter
+from argparse import ArgumentParser, RawDescriptionHelpFormatter
 from collections import defaultdict
-from itertools import islice
 from pathlib import Path
 import sys
 import time
@@ -27,20 +26,14 @@ except ImportError as e:
     print(f"Oops! Forgot to activate an appropriate environment?\n{e}")
     sys.exit(1)
 
-from mcce4.constants import ROOMT
 from mcce4.detect_hbonds import detect_hbonds
-from mcce4.io_utils import CalledProcessError, subprocess_run
-from mcce4.io_utils import get_mcce_filepaths
+from mcce4.io_utils import MsoutHeaderData
+from mcce4.io_utils import N_HDR, N_STATES
+from mcce4.io_utils import get_mcce_filepaths, get_msout_size_info
 from mcce4.io_utils import reader_gen
 from mcce4.io_utils import show_elapsed_time
 from mcce4.io_utils import table_to_df
-from mcce4.ms_split_msout import split_mc_file
 
-
-N_HDR = 6      # min header lines in msout file (non mc data)
-MC_METHODS = ["MONTERUNS", "ENUMERATE"]
-MIN_OCC = 0.0  # occ threshold
-N_STATES = 25000  # target number of hb states to return
 
 HAH_FNAME_INIT = "step2_out_hah.txt"
 # output filename as fstring formats to receive MSout_hb.pheh_str,
@@ -49,6 +42,7 @@ HAH_FNAME_INIT = "step2_out_hah.txt"
 # are fixed & always off:
 fHAH_FNAME = "hah_{}.txt"
 fHAH_EXPANDED = "expanded_hah_{}.tsv"
+
 
 # mapping of iconf (donor, acceptor) pairs for classification purposes:
 pair_classes = {(-1, -1): -2,  # bk, bk: not in matrix
@@ -90,122 +84,30 @@ def get_hb_paths(mcce_dir: Path, ph: str = "7", eh: str = "0") -> Tuple[Path]:
             h3_fp.with_name(f"hb_states{pheh}.csv"))
 
 
-def get_msout_size_info(msout_fp: Path,
-                        n_target_states: int = N_STATES) -> Tuple[int, int, int]:
-    """Return n_lines, n_skip_lines, n_mc_runs
-    """
-    mso = str(msout_fp)
-    cmd = f"egrep '^MC' {mso}; wc -l {mso};"
-    out = subprocess_run(cmd, shell=True, check=True)
-    if isinstance(out, CalledProcessError):
-        print(out.stderr)
-        sys.exit(1)
-    out = out.stdout.splitlines()
-    n_mc_runs = len(out[:-1])
-    # to implement skipping accepted states every n lines:
-    # lines count is approximate
-    n_lines = int(out[-1].split()[0]) - N_HDR - 4  # - 2 if method not monte
-    n_skip_lines = int(np.floor(n_lines / n_target_states))
-    print(f"Microstates to be saved every {n_skip_lines:,} lines",
-          f"({n_lines=:,} / {n_target_states=:,})")
-    if n_mc_runs > 1:
-        print(f"The msout file {msout_fp!s} has {n_mc_runs} MC runs")
-
-    return n_lines, n_skip_lines, n_mc_runs
-
-
-class MsoutHeaderData:
-    """This class handles the loading of the data in the header of a 'msout file'.
-    """
-    def __init__(self, msout_fp: Path):
-        self.msout_fp = msout_fp
-        self.T: float = ROOMT
-        self.pH: float = 7.0
-        self.Eh: float = 0.0
-        self.method: str = ""
-        self.is_monte: bool = False
-
-        self.fixed_iconfs: List[int] = []
-        self.n_fixed_ics: int = 0
-
-        self.free_residues: List[List[int]] = []
-        self.n_free_res: int = 0
-        self.free_iconfs: List[int] = []
-        self.n_free_ics: int = 0
-        self.iconf2ires: Dict = {}
-
-        self.load()
-
-        return
-    
-    def load(self):
-        """Process an unadulterated 'msout file' header rows to populate
-        the class attributes.
-        """
-        with open(self.msout_fp) as fh:
-            head = list(islice(fh, 6))
-        for i, line in enumerate(head, start=1):
-            if i == 1:
-                fields = line.split(",")
-                for field in fields:
-                    key, value = field.split(":")
-                    key = key.strip().upper()
-                    value = float(value)
-                    if key == "T":
-                        self.T = value
-                    elif key == "PH":
-                        self.pH = value
-                    elif key == "EH":
-                        self.Eh = value
-            if i == 2:
-                key, value = line.split(":")
-                self.method = value.strip().upper() 
-                if key.strip() != "METHOD" or self.method not in MC_METHODS:
-                    msg = (f"File {self.msout_fp!s} is not a valid microstate file; "
-                           "method: {self.method}")
-                    sys.exit(msg)
-
-                self.is_monte = self.method == "MONTERUNS"
-
-            if i == 4:
-                fix, iconfs = line.split(":")
-                self.fixed_iconfs = [int(i) for i in iconfs.split()]
-                self.n_fixed_ics = int(fix)
-            if i == 6:  # free residues
-                free, residues_str = line.split(":")
-                self.n_free_res = int(free)
-                residues = residues_str.split(";")
-                for f in residues:
-                    if f.strip():
-                        self.free_residues.append([int(i) for i in f.split()])
-                for idx, lst in enumerate(self.free_residues):
-                    for iconf in lst:
-                        self.iconf2ires[iconf] = idx
-
-        self.free_iconfs = list(self.iconf2ires.keys())
-        self.n_free_ics = len(self.free_iconfs)
-
-        return
-
-
 class ConfInfo:
     """This class handles the loading of head3 data into a numpy array
-    and provides accessor functions.
+    and provides these accessor functions:
+     - get_iconf(confid)
+     - get_confid(iconf)
+     - get_ires(iconf)
+     - is_free_conf(confid)
+     - is_fixed_off(confid)
+    The 'conf_info' attribute (np.ndarray) is a lookup 'table' for
+    these fields: confid:0, crg:1, iconf:2, off:3, ires:4, is_free:5
     """
     def __init__(self, h3_fp: Path, verbose: bool = False):
         self.h3_fp = h3_fp
+        self.verbose = verbose
         self.conf_info: np.ndarray = None
         self.n_confs: int = None
-        self.max_ic, self.max_ir = None, None
+        self.max_ic = None
+        self.max_ir = None
         self.background_crg: int = None
-        self.verbose = verbose
-
-        return
-    
 
     def load(self, iconf2ires: Dict, fixed_iconfs: List[int]):
         """Popuate the 'conf_info' attribute (np.ndarray): a lookup 'table' for:
-        confids, crg, iconfs, ires, and is_free flag.
+        confid:0, crg:1, iconf:2, off:3, ires:4, is_free:5"
+        confids, crg, iconfs, ires, and is_free_conf is_fixed_off flags.
         """
         print("\nPopulating the lookup array with head3.lst and msout file header data")
         conf_info = []
@@ -315,7 +217,6 @@ class MSout_hb:
     """
     def __init__(self, mcce_dir: str, ph: str = "7", eh: str = "0",
                  n_target_states: int = 25_000,
-                 interactive: bool = False,
                  verbose: bool = False):
         self.verbose = verbose
         self.run_dir = Path(mcce_dir)
@@ -332,18 +233,6 @@ class MSout_hb:
         self.mc_lines, self.n_skip, self.n_MC = get_msout_size_info(self.msout_fp,
                                                 n_target_states=n_target_states)
         print(f"Approximate number of lines in msout file: {self.mc_lines:,}")
-        
-        if interactive:
-            print("not implemented yet")
-            # TODO
-            #check n_mc_runs > 1
-            # ask reduce to 1 or smaller range?
-            #   reset_master = n_mc_runs != 6 & all_msout file exists
-            #   y: split_mc_file(msout_fp, mc_range, reset_master)
-            # ask n_target_states ok? Enter or give new number = new_target
-            #re-assign counts:
-            # n_lines, n_skip_lines, n_mc_runs = get_msout_size_info(self.msout_fp,
-            #                                                   n_target_states=new_target)
 
         # data from the msout file 'header':
         self.HDR = MsoutHeaderData(self.msout_fp)
@@ -661,7 +550,7 @@ class MSout_hb:
         # fixed & bk iconfs will have NaN:
         df.loc[free_msk, "Mi"] = df.loc[free_msk,"iconf1"].apply(get_Mx)
         df.loc[free_msk, "Mj"] = df.loc[free_msk,"iconf2"].apply(get_Mx)
-        print(f"debug, before get_fixed_or_bk_confids: {df.shape}")
+
         fixd, fixa, bkd, bka = MSout_hb.get_fixed_or_bk_confids(df, self.verbose)
         self.get_extended_iconfs(fixd, fixa, bkd, bka)
         self.set_extended_accessors()
@@ -716,12 +605,11 @@ class MSout_hb:
         msk = self.df["free"].gt(0)
         df = self.df.loc[msk]
         df = df.drop_duplicates(subset=["Mi", "Mj"])
-        print(f"Unique H-bonding pairs for matrix: {df.shape[0]}")
+        n_rows = df.shape[0]
+        print(f"Unique H-bonding pairs for matrix: {n_rows}")
         N = self.HDR.n_free_ics + self.n_fx + self.n_bk
 
-        return csr_matrix(([1]*df.shape[0],
-                           (df["Mi"].values, df["Mj"].values)
-                           ),
+        return csr_matrix(([1]*n_rows, (df["Mi"].values, df["Mj"].values)),
                           shape=(N, N))
 
     def load_ms_hb(self):
