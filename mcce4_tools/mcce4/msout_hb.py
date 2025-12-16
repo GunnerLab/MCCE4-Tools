@@ -74,9 +74,12 @@ def get_hb_paths(mcce_dir: Path, ph: str = "7", eh: str = "0") -> Tuple[Path]:
     pheh = msout_fp.stem[:-2]
     hah_fp = mcce_dir.joinpath(fHAH_FNAME.format(pheh))
     if not hah_fp.exists():
-        hah_fp = mcce_dir.joinpath(HAH_FNAME_INIT)
-        if not hah_fp.exists():
-            hah_fp = None
+        sys.exit("Run detect_hbonds first (step2_out_hah.txt not found)")
+    else:
+        with open(hah_fp) as fh:
+            last_col = fh.readline().split()[-1]
+        if last_col != "xyz":
+            sys.exit("Rerun detect_hbonds for new format")
 
     return (h3_fp, step2_fp, msout_fp, hah_fp,
             mcce_dir.joinpath(fHAH_EXPANDED.format(pheh)),
@@ -216,7 +219,7 @@ class MSout_hb:
         - head3_file, msout_file (str): Paths to head3.lst & msout files.
     """
     def __init__(self, mcce_dir: str, ph: str = "7", eh: str = "0",
-                 n_target_states: int = 25_000,
+                 n_target_states: int = N_STATES,
                  verbose: bool = False):
         self.verbose = verbose
         self.run_dir = Path(mcce_dir)
@@ -269,7 +272,11 @@ class MSout_hb:
         start_t = time.time()
         self.df = self.expand_hah_data()
         show_elapsed_time(start_t, info="Expanding the hah file into a dataframe")
-
+        
+        # skip = True
+        # if skip:
+        #     return
+        
         start_t = time.time()
         self.M = self.get_hah_matrix()
         if self.M is None:
@@ -301,17 +308,6 @@ class MSout_hb:
         show_elapsed_time(start_tot, info="Start to end")
 
         return
-
-    def run_detect_hbonds(self):
-        # run detect_hbonds (with bk atoms by default):
-        status = detect_hbonds(str(self.step2_fp),
-                               no_empty_files=True)
-        if not status[0]:
-            raise ValueError("No H-bonding pairs in step2_out.pdb.")
-        # reset
-        self.hah_fp = self.run_dir.joinpath(HAH_FNAME_INIT)
-
-        return
             
     def load_hah_file(self) -> Union[pd.DataFrame, None]:
         """Wrapper for hah file preparation.
@@ -319,15 +315,10 @@ class MSout_hb:
          - If original file saved as step2_out_hah0.txt, does not exist,
            create a reduced file.
          """
-        if self.hah_fp is None:
-            if self.verbose:
-                print("Running default detect_hbonds (with BK)...")
-            self.run_detect_hbonds()
-        
         df = table_to_df(self.hah_fp)
         if df.columns[-1] != "xyz":
-            # old format, re-run
-            self.run_detect_hbonds()
+            sys.exit("Rerun detect_hbonds for new format")
+
             df = table_to_df(self.hah_fp)
 
         print(f"H-bonding pairs in {self.hah_fp.name!s}: {df.shape[0]}")
