@@ -58,7 +58,7 @@ Notes:
    the program will list the resids in head3.lst and exit;
    The list or a portion thereof can then be used as values to
    the 'correl_resids' identifier in the parameter file.
-2. Text files with an extension of '.crgms' in MCCE4-Tools/cli_parameter_files/
+2. Text files with an extension of '.crgms' in MCCE4-Tools/mcce4_tools/tool_param/
    can be copied, then modified for use by this tool.
 """
     p = ArgumentParser(
@@ -67,7 +67,11 @@ Notes:
         formatter_class=RawDescriptionHelpFormatter,
         epilog=CLI_EPILOG
     )
-    p.add_argument("params_file", type=str, help="The input parameters file.")
+    p.add_argument(
+        "params_file",
+        metavar="PARAMS.CRGMS",
+        type=str,
+        help="The input parameters file.")
 
     return p
 

@@ -329,6 +329,7 @@ class CMSWC_Pipeline:
 
         self.residue_kinds: List = None
         self.correl_resids: List = None
+        self.correl_all: bool = False
         self.show_fig: bool = False
         
         self.mc: MSout_np = None
@@ -378,7 +379,8 @@ class CMSWC_Pipeline:
 
         # Process residue kinds
         self.residue_kinds = self.main_prms.get("residue_kinds", IONIZABLES)
-        if set(self.residue_kinds).symmetric_difference(IONIZABLES):
+        if (set(self.residue_kinds).symmetric_difference(IONIZABLES)
+            and len(self.residue_kinds) > 1):
             self.residue_kinds = prm.sort_resoi_list(self.residue_kinds)
         logger.info(f"Residue kinds for analysis: {self.residue_kinds}")
 
@@ -414,7 +416,9 @@ class CMSWC_Pipeline:
             else:
                  logger.info(f"Residues for correlation: {self.correl_resids}")
         else:
-            logger.warning("No residues provided for correlation analysis.")
+            # TODO : implement
+            logger.warning("No residues provided for correlation analysis => do all (when implemented).")
+            self.correl_all = True
 
         return
 
