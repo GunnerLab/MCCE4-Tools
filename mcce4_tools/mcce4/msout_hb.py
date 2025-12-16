@@ -72,14 +72,18 @@ def get_hb_paths(mcce_dir: Path, ph: str = "7", eh: str = "0") -> Tuple[Path]:
     # reset to match precision in msout file name:
     # case where reduced function was already run:
     pheh = msout_fp.stem[:-2]
+    # use the reduced file if found:
     hah_fp = mcce_dir.joinpath(fHAH_FNAME.format(pheh))
     if not hah_fp.exists():
-        sys.exit("Run detect_hbonds first (step2_out_hah.txt not found)")
-    else:
-        with open(hah_fp) as fh:
-            last_col = fh.readline().split()[-1]
-        if last_col != "xyz":
-            sys.exit("Rerun detect_hbonds for new format")
+        # use the output file from detect_hbonds:
+        hah_fp = mcce_dir.joinpath(HAH_FNAME_INIT)
+        if not hah_fp.exists():
+            sys.exit("Run detect_hbonds first (step2_out_hah.txt not found)")
+        else:
+            with open(hah_fp) as fh:
+                has_xyz = fh.readline().split()[-1] == "xyz"
+            if not has_xyz:
+                sys.exit("Rerun detect_hbonds for new format")
 
     return (h3_fp, step2_fp, msout_fp, hah_fp,
             mcce_dir.joinpath(fHAH_EXPANDED.format(pheh)),
@@ -273,9 +277,9 @@ class MSout_hb:
         self.df = self.expand_hah_data()
         show_elapsed_time(start_t, info="Expanding the hah file into a dataframe")
         
-        # skip = True
-        # if skip:
-        #     return
+        skip = True
+        if skip:
+            return
         
         start_t = time.time()
         self.M = self.get_hah_matrix()
@@ -316,11 +320,6 @@ class MSout_hb:
            create a reduced file.
          """
         df = table_to_df(self.hah_fp)
-        if df.columns[-1] != "xyz":
-            sys.exit("Rerun detect_hbonds for new format")
-
-            df = table_to_df(self.hah_fp)
-
         print(f"H-bonding pairs in {self.hah_fp.name!s}: {df.shape[0]}")
         if self.hah_fp.name==HAH_FNAME_INIT:
             df = self.reduce_hah_file(df)
@@ -343,9 +342,12 @@ class MSout_hb:
         df["d_off"] = df["confid_donor"].apply(self.CI.is_fixed_off)
         df["a_off"] = df["confid_acceptor"].apply(self.CI.is_fixed_off)
         msk_off = (df["d_off"]==1) | (df["a_off"]==1)
-        df.drop(index=df.loc[msk_off].index, axis=0, inplace=True)
+        df = df.drop(index=df.loc[msk_off].index, axis=0)
+        # remove BK-BK:
+        msk_bk = (df["confid_donor"].str.contains("BK")) & (df["confid_acceptor"].str.contains("BK"))
+        df = df.drop(index=df.loc[msk_bk].index, axis=0)
         # drop the temp columns before saving:
-        df.drop(columns=["d_off", "a_off"], inplace=True)
+        df = df.drop(columns=["d_off", "a_off"])
         reduced_fp = self.hah_fp.with_name(fHAH_FNAME.format(self.pheh_str))
         # reset hah path:
         self.hah_fp = reduced_fp
