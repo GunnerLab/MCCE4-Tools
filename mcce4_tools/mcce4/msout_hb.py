@@ -277,7 +277,7 @@ class MSout_hb:
         self.df = self.expand_hah_data()
         show_elapsed_time(start_t, info="Expanding the hah file into a dataframe")
         
-        skip = True
+        skip = False
         if skip:
             return
         
