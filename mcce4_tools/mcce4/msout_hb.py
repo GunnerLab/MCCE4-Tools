@@ -26,7 +26,6 @@ except ImportError as e:
     print(f"Oops! Forgot to activate an appropriate environment?\n{e}")
     sys.exit(1)
 
-from mcce4.detect_hbonds import detect_hbonds
 from mcce4.io_utils import MsoutHeaderData
 from mcce4.io_utils import N_HDR, N_STATES
 from mcce4.io_utils import get_mcce_filepaths, get_msout_size_info
@@ -52,9 +51,9 @@ pair_classes = {(-1, -1): -2,  # bk, bk: not in matrix
                 # in matrix:
                 (1, 1): 1,     # free, free: initial matrix elements
                 (1, 0): 2,     # free, fixed: extended matrix
-                (1, -1): 2,    # free, bk: extended matrix
+                (1,-1): 2,     # free, bk: extended matrix
                 (0, 1): 3,     # fixed, free: extended matrix
-                (-1, 1): 3,    # bk, free: extended matrix
+                (-1,1): 3,     # bk, free: extended matrix
                 }
 
 
@@ -88,7 +87,7 @@ def get_hb_paths(mcce_dir: Path, ph: str = "7", eh: str = "0") -> Tuple[Path]:
     return (h3_fp, step2_fp, msout_fp, hah_fp,
             mcce_dir.joinpath(fHAH_EXPANDED.format(pheh)),
             h3_fp.with_name(f"hb_pairs_{pheh}.csv"),
-            h3_fp.with_name(f"hb_states{pheh}.csv"))
+            h3_fp.with_name(f"hb_states_{pheh}.csv"))
 
 
 class ConfInfo:
@@ -100,21 +99,24 @@ class ConfInfo:
      - is_free_conf(confid)
      - is_fixed_off(confid)
     The 'conf_info' attribute (np.ndarray) is a lookup 'table' for
-    these fields: confid:0, crg:1, iconf:2, off:3, ires:4, is_free:5
+    these fields: confid:0, crg:1, iconf:2, is_fixed:3, ires:4, is_free:5
+
+    Note: Only is_free is a true boolean field; fields preset with -1 need
+          interpretation, e.g. after fixed iconfs are set to 1 if they are
+          'fixed on', the remaining -1 values mean 'fixed off'.
     """
     def __init__(self, h3_fp: Path, verbose: bool = False):
         self.h3_fp = h3_fp
         self.verbose = verbose
         self.conf_info: np.ndarray = None
         self.n_confs: int = None
-        self.max_ic = None
-        self.max_ir = None
+        self.max_iconf: int = None
+        self.max_ires: int = None
         self.background_crg: int = None
 
     def load(self, iconf2ires: Dict, fixed_iconfs: List[int]):
         """Popuate the 'conf_info' attribute (np.ndarray): a lookup 'table' for:
-        confid:0, crg:1, iconf:2, off:3, ires:4, is_free:5"
-        confids, crg, iconfs, ires, and is_free_conf is_fixed_off flags.
+        confid:0, crg:1, iconf:2, is_fixed:3, ires:4, is_free:5
         """
         print("\nPopulating the lookup array with head3.lst and msout file header data")
         conf_info = []
@@ -127,30 +129,33 @@ class ConfInfo:
             cx = int(iConf) - 1  # as python index
             crg = int(float(Crg))
             # extend ires indices; to use in matrix
-            # confid:0, crg:1, cx:2, off:3, rx:4, is_free:5
-            conf_info.append([confid, crg, cx, 0, -1, 0])
+            # confid:0, crg:1, cx:2, is_fixed:3, rx:4, is_free:5
+            conf_info.append([confid, crg, cx, -1, -1, 0])
 
         # temp list structure is now sized & has h3 info; cast to np.ndarray:
         conf_info = np.array(conf_info, dtype=object)
 
-        # populate the ir of free res, if possible
+        # is_free field
+        free_ics = list(iconf2ires.keys())
+        conf_info[free_ics, -1] = 1
+        # fixed on
+        conf_info[fixed_iconfs, 3] = 1
+
+        # populate the rx of free res, if possible
         for i, (_, _, cx, *_) in enumerate(conf_info):
-            conf_info[i][-2] = iconf2ires.get(cx, -1)
+             conf_info[i][-2] = iconf2ires.get(cx, -9)
 
-        # populate the 'is_free' field using valid ires
-        conf_info[np.where(conf_info[:,-2]>=0), -1] = 1
-
-        # populate the fixed 'off' field
-        conf_info[np.where((conf_info[:,-1]==0) 
-                            & np.logical_not(np.isin(conf_info[:,2], fixed_iconfs))
-                          ), 3] = 1
         if self.verbose:
             print(" Head3 lookup array 'conf_info' fields:", 
-                "confid:0, crg:1, cx:2, off:3, rx:4, is_free:5")
+                "confid:0, crg:1, cx:2, is_fixed:3, rx:4, is_free:5")
         self.n_confs = conf_info.shape[0]
         self.max_iconf, self.max_ires = np.max(conf_info[:,[2,4]], axis=0)
         # sumcrg for not is_free:
-        self.background_crg = conf_info[np.where(conf_info[:,-1]==0), 1].sum()
+        #self.background_crg = conf_info[np.where(conf_info[:,-1]==0), 1].sum()
+
+        # sumcrg for is_fixed on:
+        #self.background_crg = conf_info[np.where(conf_info[:,3]==1), 1].sum()
+        self.background_crg = conf_info[np.where((conf_info[:,-1]==0) & (conf_info[:,3]==1)), 1].sum()
         print(f" Background crg: {self.background_crg}",
               f" n_confs: {self.n_confs}", sep="\n")
         self.conf_info = conf_info
@@ -159,15 +164,16 @@ class ConfInfo:
     
     def get_iconf(self, confid: str) -> int:
         """Get the conf index of a confid;
-        confid:0, crg:1, cx:2, off:3, rx:4, is_free:5
+        confid:0, crg:1, cx:2, is_fixed:3, rx:4, is_free:5
+        Note: -1 is return for confid of BK (not in head3.lst)
         """
-        if "BK" in confid:
+        if "BK" in confid:  # not in conf_info
             return -1
         return self.conf_info[np.where(self.conf_info[:,0]==confid)][0,2]
 
     def get_confid(self, iconf: int) -> str:
         """Get the confid of a conf index;
-        confid:0, crg:1, cx:2, off:3, rx:4, is_free:5
+        confid:0, crg:1, cx:2, is_fixed:3, rx:4, is_free:5
         """
         try:
             val = self.conf_info[np.where(self.conf_info[:,2]==iconf)][0,0]
@@ -178,13 +184,13 @@ class ConfInfo:
 
     def get_ires(self, iconf: int) -> int:
         """Get the res index given a conformer index;
-        confid:0, crg:1, cx:2, off:3, rx:4, is_free:5
+        confid:0, crg:1, cx:2, is_fixed:3, rx:4, is_free:5
         """
         try:
             val = self.conf_info[np.where((self.conf_info[:,-1]==1) 
                                           & (self.conf_info[:,2]==iconf))][0,-2]
         except IndexError:
-            val = None
+            val = -1
 
         return val
 
@@ -197,21 +203,27 @@ class ConfInfo:
         try:
             val = self.conf_info[np.where(self.conf_info[:,0]==confid)][0,-1]
         except IndexError:
-            val = None
+            val = -1
 
         return val
 
     def is_fixed_off(self, confid: str) -> int:
-        """confid:0, crg:1, cx:2, off:3, rx:4, is_free:5
-        Note: -1 is return for confid of BK, so it's not eliminated
+        """confid:0, crg:1, cx:2, is_fixed:3, rx:4, is_free:5
+        Notes:
+          -1 is return for confid of BK, so it's not eliminated
+           is_fixed values are either 1 or -1; -1 means not in ms fixed on => off
         """
         if "BK" in confid:
             return -1
         try:
-            val = self.conf_info[np.where(self.conf_info[:,0]==confid)][0,3]
-            if val == -1: val = 0
+            val = self.conf_info[np.where((self.conf_info[:,0]==confid)
+                                          & (self.conf_info[:,-1]==0))][0,3]
+            if val == -1:
+                val = 1
+            else:
+                val = 0
         except IndexError:
-            val = None
+            val = 0
 
         return val
 
@@ -250,7 +262,7 @@ class MSout_hb:
         self.CI = ConfInfo(self.h3_fp, verbose=self.verbose)
         # load the self.CI.conf_info lookup array:
         self.CI.load(self.HDR.iconf2ires, self.HDR.fixed_iconfs)
-        # + CI.n_confs, CI.max_ic, CI.max_ir
+        # + CI.n_confs, CI.max_iconf, CI.max_ires
         show_elapsed_time(start_t, info="Loading conf_info array")
 
         # attributes populated by get_extended_iconfs:
@@ -260,6 +272,7 @@ class MSout_hb:
         self.extend_bk: List[str] = []
         self.n_bk: int = None
         self.dm_iconfs: List[int] = None
+        self.extend_classes: List[int] = None
 
         # attributes populated by set_extended_accessors
         self.mat_res: List[List[int]] = None
@@ -277,19 +290,20 @@ class MSout_hb:
         self.df = self.expand_hah_data()
         show_elapsed_time(start_t, info="Expanding the hah file into a dataframe")
         
-        skip = False
-        if skip:
-            return
-        
         start_t = time.time()
         self.M = self.get_hah_matrix()
         if self.M is None:
             sys.exit("Could not create the hb pairs matrix.")
+
         if self.verbose:
             mat_pair_i, mat_pair_j = self.M.nonzero()
             print("Mij set to 1 in matrix:", list(zip(mat_pair_i, mat_pair_j)), sep="\n")
         show_elapsed_time(start_t, info="Creating the hb pairs matrix M")
 
+        skip = False
+        if skip:
+            return
+        
         # Attributes populated by the 'load_ms_hb' function:
         self.n_space: int = None     # size of state space
         # dicts to receive each H-bond pair (str key: space-less d/a tuple of iconfs) 
@@ -329,23 +343,22 @@ class MSout_hb:
         return df
 
     def reduce_hah_file(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Reduce the inital hah.txt file by removing entries that have
-        H-bonding pairs with fixed conformers that are always OFF.
-        The original file is saved as hah0.txt, the reduced one as hah.txt,
-        indicating that the presence of the hah0.txt file means that the hah.txt
-        file is reduced.
-        The fixed conformers that are always OFF are identified by these criteria:
-         - iconf is not free (not in the free_iconfs list)
-         - iconf is not in the fixed_iconfs list
+        """Reduce the inital hah.txt file by removing entries that have:
+          - H-bonding pairs with fixed conformers that are always OFF
+          - H-bonding pairs between 2 BK conformers
+        The the reduced file is save as hah_{pheh}.txt, as it is ph dependent and
+        used in extend_hah_data function.
         """
         assert self.hah_fp.name == HAH_FNAME_INIT
         df["d_off"] = df["confid_donor"].apply(self.CI.is_fixed_off)
         df["a_off"] = df["confid_acceptor"].apply(self.CI.is_fixed_off)
         msk_off = (df["d_off"]==1) | (df["a_off"]==1)
-        df = df.drop(index=df.loc[msk_off].index, axis=0)
-        # remove BK-BK:
-        msk_bk = (df["confid_donor"].str.contains("BK")) & (df["confid_acceptor"].str.contains("BK"))
-        df = df.drop(index=df.loc[msk_bk].index, axis=0)
+        if msk_off.any():
+            df = df.drop(index=df.loc[msk_off].index, axis=0)
+        # # remove BK-BK:
+        # msk_bk = (df["confid_donor"].str.contains("BK")) & (df["confid_acceptor"].str.contains("BK"))
+        # if msk_bk.any():
+        #     df = df.drop(index=df.loc[msk_bk].index, axis=0)
         # drop the temp columns before saving:
         df = df.drop(columns=["d_off", "a_off"])
         reduced_fp = self.hah_fp.with_name(fHAH_FNAME.format(self.pheh_str))
@@ -356,8 +369,7 @@ class MSout_hb:
 
         return df
 
-    @staticmethod
-    def get_fixed_or_bk_confids(df: pd.DataFrame, verbose: bool = False) -> Tuple[List[str],List[str],List[str],List[str]]:
+    def get_fixed_or_bk_confids(self, df: pd.DataFrame) -> Tuple[List[str],List[str],List[str],List[str]]:
         """Return lists for fixed and bk confids for each donor/acceptor:
            fixd, fixa, bkd, bka (in that order).
         """
@@ -367,10 +379,12 @@ class MSout_hb:
         # - getting unique values for each kind
         # - filtering the master df to assign final Mij using dummy ics
         fixd, fixa, bkd, bka = [],[],[],[]
-        params = {2:{"not_free": "free_a", "col": "confid_acceptor", "dmic": "iconf2dm",
+        params = {2:{"not_free": "free_a",
+                     "col": "confid_acceptor",
                      0: {"lst":fixa}, -1: {"lst":bka},
                     },
-                  3:{"not_free": "free_d", "col": "confid_donor", "dmic": "iconf1dm",
+                  3:{"not_free": "free_d",
+                     "col": "confid_donor",
                       0: {"lst":fixd}, -1: {"lst":bkd},
                      }}
 
@@ -388,22 +402,22 @@ class MSout_hb:
                         if len(gp.groups):
                             keys = list(gp.indices.keys())  # unique & sorted
                             params[cx][k]["lst"].extend(keys)
-                            if verbose:
+                            if self.verbose:
                                 print(f" Class {cx}: Extended slots for {K[i]} {kcol!r}: {len(keys)}")
                         else:
-                            if verbose:
+                            if self.verbose:
                                 print(f" Class {cx}: No extended slots for {K[i]} {kcol!r}")
                     else:
-                        if verbose:
+                        if self.verbose:
                             print(f" Class {cx}: No extended slots for {K[i]} {kcol!r}")
             else:
-                if verbose:
+                if self.verbose:
                     print(f" No extended slots for empty pair class {cx}")
 
         return fixd, fixa, bkd, bka
 
     def set_extended_accessors(self) -> Tuple:
-        if not (self.n_fx + self.n_bk):
+        if (self.n_fx + self.n_bk) == 0:
             # assign current accessors to outputs:
             self.mat_res = self.HDR.free_residues
             self.n_mat_res = self.HDR.n_free_res
@@ -465,7 +479,6 @@ class MSout_hb:
         return
 
     def get_extended_iconfs(self, fixd, fixa, bkd, bka):
-      
         if fixd and fixa:
             self.extend_fixed = sorted(set(fixd).union(fixa))
         elif fixd:
@@ -483,10 +496,13 @@ class MSout_hb:
         print(" Number of extension slots from mixed pairs with BK:",len(self.extend_bk))
         self.n_fx = len(self.extend_fixed)
         self.n_bk = len(self.extend_bk)
+        self.extend_classes = []  # [0, -1] :: fixed, BK
         if self.n_fx:
-            # get iconfs values fo fixed
+            self.extend_classes.extend([0])
+            # get iconfs values for fixed
             self.fx_iconfs = [self.CI.get_iconf(xid) for xid in self.extend_fixed]
         if self.n_bk:
+            self.extend_classes.extend([-1])
             # to avoid collisions, dummy ics for bk confs start past last iconf:
             dmic_start = self.CI.n_confs
             # create dm iconfs values for bk:
@@ -500,21 +516,14 @@ class MSout_hb:
          -free conformer flag
          -free iconf to free residue index used to build the hb pairs matrix P
         """
-        # df.apply functions:
         def is_free_pair(ro) -> int:
-            """Assign classes to pair kinds. df.apply fn; axis=1.
-            """
+            """Assign classes to pair kinds."""
             return pair_classes[(ro["free_d"], ro["free_a"])]
-        
+    
         def get_Mx(ro: pd.Series) -> int:
-            return self.HDR.iconf2ires.get(ro)
-        
-        def get_dm_ic(ro: pd.Series) -> int:
-            return self.bkid2dmic.get(ro)
-
-        def get_dm_Mx(ro: pd.Series) -> int:
-            return self.mat_iconf2ires.get(ro)
-
+            #return self.mat_iconf2ires.get(ro)  # None
+            return self.HDR.iconf2ires.get(ro, -1)
+    
         df = self.load_hah_file()
 
         # these may help creating an adjacency list.
@@ -533,48 +542,62 @@ class MSout_hb:
         df["free_a"] = df["confid_acceptor"].apply(self.CI.is_free_conf)
         df["free"] = df.apply(is_free_pair, axis=1)
 
-        # Add cols for final (extended) matrix i,j; mixed pairs to be set later
-        df["Mi"] = -1
-        df["Mj"] = -1
+        # Add cols for final (extended) matrix i,j; init with dummy value
+        df["Mi"] = -9
+        df["Mj"] = -9
 
         # assign ires to the free iconf(s) in pairs destined for matrix;
         # classes 1,2 & 3):
-        free_msk = df["free"].gt(0)
-        # fixed & bk iconfs will have NaN:
-        df.loc[free_msk, "Mi"] = df.loc[free_msk,"iconf1"].apply(get_Mx)
-        df.loc[free_msk, "Mj"] = df.loc[free_msk,"iconf2"].apply(get_Mx)
 
-        fixd, fixa, bkd, bka = MSout_hb.get_fixed_or_bk_confids(df, self.verbose)
+        valid = df["free"].gt(0)
+        # fixed & bk iconfs will have NaN:
+        df.loc[valid, "Mi"] = df.loc[valid,"iconf1"].apply(get_Mx)
+        df.loc[valid, "Mj"] = df.loc[valid,"iconf2"].apply(get_Mx)
+
+        fixd, fixa, bkd, bka = self.get_fixed_or_bk_confids(df)
         self.get_extended_iconfs(fixd, fixa, bkd, bka)
         self.set_extended_accessors()
+    
+        # df.apply functions:        
+        def get_bk_ic(ro: pd.Series) -> int:
+            if self.bkid2dmic is None:
+                return -2
+            return self.bkid2dmic.get(ro, -2)
 
-        params = {2:{"not_free": "free_a", "col": "confid_acceptor",
-                        "dmic": "iconf2dm",
-                        "iconf": "iconf2",
-                        "Mx": "Mj"},
-                    3:{"not_free": "free_d", "col": "confid_donor",
-                        "dmic": "iconf1dm",
-                        "iconf": "iconf1",
-                        "Mx": "Mi"},}
+        def get_new_Mx(ro: pd.Series) -> int:
+            return self.mat_iconf2ires.get(ro, -3)
 
-        # update dummy iconfs & fixed Mx:
-        for cx in [2, 3]:
-            mixed = df["free"]==cx
-            for k in [0, -1]:  # fixed, BK
-                # update dummy iconfs cols & Mx of fixed
-                cidf = df[params[cx]["not_free"]]==k
-                msk = mixed & cidf
-                if msk.any():
-                    Mx = params[cx]["Mx"]
-                    if k == 0:
-                        iconf = params[cx]["iconf"]
-                        # update NaN Mij of fixed iconfs
-                        df.loc[msk, Mx] = df.loc[msk, iconf].apply(get_dm_Mx)
-                    else:
-                        dmicol, idcol = params[cx]["dmic"], params[cx]["col"]
-                        df.loc[msk, dmicol] = df.loc[msk, idcol].apply(get_dm_ic)
-                        # update NaN Mij of dm iconfs
-                        df.loc[msk, Mx] = df.loc[msk, dmicol].apply(get_dm_Mx)
+        # d_free = df["free_d"]==1
+        # fr_msk1 = valid & d_free
+        # if fr_msk1.any():
+        #     df.loc[fr_msk1, "Mi"] = df.loc[fr_msk1,"iconf1"].apply(get_Mx)
+
+        # a_free = df["free_a"]==1
+        # fr_msk2 = valid & a_free
+        # if fr_msk2.any():    
+        #     df.loc[fr_msk2, "Mj"] = df.loc[fr_msk2,"iconf2"].apply(get_Mx)
+
+        d_fix = df["free_d"]==0
+        fx_msk1 = valid & d_fix
+        if fx_msk1.any():
+            df.loc[fx_msk1, "Mi"] = df.loc[fx_msk1,"iconf1"].apply(get_new_Mx)
+
+        a_fix = df["free_a"]==0
+        fx_msk2 = valid & a_fix
+        if fx_msk2.any():    
+            df.loc[fx_msk2, "Mj"] = df.loc[fx_msk2,"iconf2"].apply(get_new_Mx)
+
+        d_bk = df["free_d"]==-1
+        bk_msk1 = valid & d_bk
+        if bk_msk1.any():
+            df.loc[bk_msk1, "iconf1dm"] = df.loc[bk_msk1, "confid_donor"].apply(get_bk_ic)
+            df.loc[bk_msk1, "Mi"] = df.loc[bk_msk1, "iconf1dm"].apply(get_new_Mx)
+
+        a_bk = df["free_a"]==-1
+        bk_msk2 = valid & a_bk
+        if bk_msk2.any():
+            df.loc[bk_msk2, "iconf2dm"] = df.loc[bk_msk2, "confid_acceptor"].apply(get_bk_ic)
+            df.loc[bk_msk2, "Mj"] = df.loc[bk_msk2, "iconf2dm"].apply(get_new_Mx)
 
         df["Mi"] = df["Mi"].astype("int8")
         df["Mj"] = df["Mj"].astype("int8")
@@ -598,6 +621,14 @@ class MSout_hb:
         msk = self.df["free"].gt(0)
         df = self.df.loc[msk]
         df = df.drop_duplicates(subset=["Mi", "Mj"])
+
+        negi, negj = df["Mi"]<0, df["Mj"]<0
+        check_neg = negi | negj
+        if check_neg.any():
+            neg = df.loc[check_neg]
+            neg.shape[0]
+            sys.exit(f"Some {neg.shape[0]} Mij's have negative values!")
+
         n_rows = df.shape[0]
         print(f"Unique H-bonding pairs for matrix: {n_rows}")
         N = self.HDR.n_free_ics + self.n_fx + self.n_bk
@@ -718,8 +749,9 @@ class MSout_hb:
             dfp[["Mi","Mj"]] = dfp["Mij"].apply(lambda x: pd.Series([x[0],x[1]]))
             dfp[["donor","acceptor"]] = dfp["Mij"].apply(lambda x: pd.Series([self.mat_ires2confid[x[0]],
                                                                             self.mat_ires2confid[x[1]]]))
-            dfp = dfp.sort_values(by="ms_count", ascending=False)
-            dfp[["Mij","donor","acceptor","ms_count","ms_occ"]].to_csv(self.pairs_csv, index=False)
+            pairs_out = dfp[["Mij","donor","acceptor","ms_count","ms_occ"]].sort_values(by="ms_count",
+                                                                                        ascending=False)
+            pairs_out.to_csv(self.pairs_csv, index=False)
 
             # update expanded hah file:
             dfp = dfp.drop(columns=["Mij","donor","acceptor"])
