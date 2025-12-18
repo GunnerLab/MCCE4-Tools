@@ -61,6 +61,8 @@ res3_to_res1 = {
     "ASN": "N",
     "ASP": "D",
     "CYS": "C",
+    "CYD": "C",
+    "CYL": "C",
     "GLN": "Q",
     "GLU": "E",
     "GLY": "G",

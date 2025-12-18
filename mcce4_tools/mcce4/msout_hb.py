@@ -26,6 +26,7 @@ except ImportError as e:
     print(f"Oops! Forgot to activate an appropriate environment?\n{e}")
     sys.exit(1)
 
+from mcce4.constants import res3_to_res1
 from mcce4.io_utils import MsoutHeaderData
 from mcce4.io_utils import N_HDR, N_STATES
 from mcce4.io_utils import get_mcce_filepaths, get_msout_size_info
@@ -40,7 +41,7 @@ HAH_FNAME_INIT = "step2_out_hah.txt"
 # reduced hah.txt file, no hb pairs involving conformer that
 # are fixed & always off:
 fHAH_FNAME = "hah_{}.txt"
-fHAH_EXPANDED = "expanded_hah_{}.tsv"
+fHAH_EXPANDED = "expanded_hah_{}.csv"
 
 
 # mapping of iconf (donor, acceptor) pairs for classification purposes:
@@ -55,11 +56,6 @@ pair_classes = {(-1, -1): -2,  # bk, bk: not in matrix
                 (0, 1): 3,     # fixed, free: extended matrix
                 (-1,1): 3,     # bk, free: extended matrix
                 }
-
-
-def load_hah_ms(hah_ms_fp: Path) -> pd.DataFrame:
-    """Load the main output file into a dataframe."""
-    return pd.read_csv(hah_ms_fp, sep="\t")
 
 
 def get_hb_paths(mcce_dir: Path, ph: str = "7", eh: str = "0") -> Tuple[Path]:
@@ -355,10 +351,10 @@ class MSout_hb:
         msk_off = (df["d_off"]==1) | (df["a_off"]==1)
         if msk_off.any():
             df = df.drop(index=df.loc[msk_off].index, axis=0)
-        # # remove BK-BK:
-        # msk_bk = (df["confid_donor"].str.contains("BK")) & (df["confid_acceptor"].str.contains("BK"))
-        # if msk_bk.any():
-        #     df = df.drop(index=df.loc[msk_bk].index, axis=0)
+        # remove BK-BK:
+        msk_bk = (df["confid_donor"].str.contains("BK")) & (df["confid_acceptor"].str.contains("BK"))
+        if msk_bk.any():
+            df = df.drop(index=df.loc[msk_bk].index, axis=0)
         # drop the temp columns before saving:
         df = df.drop(columns=["d_off", "a_off"])
         reduced_fp = self.hah_fp.with_name(fHAH_FNAME.format(self.pheh_str))
@@ -458,6 +454,7 @@ class MSout_hb:
         self.n_mat_res = len(self.mat_res)
         self.mat_iconf2ires = {}  # iconf to extended
         self.mat_ires2confid = {}
+        #self.mat_ires2iconf = {}
         ix = self.HDR.n_free_res -1 + self.n_fx + 1
         for ires, lst in enumerate(self.mat_res):
             for iconf in lst:
@@ -602,7 +599,7 @@ class MSout_hb:
         df["Mi"] = df["Mi"].astype("int8")
         df["Mj"] = df["Mj"].astype("int8")
         # save
-        df.to_csv(self.hah_ms_fp, index=False, sep="\t")
+        df.to_csv(self.hah_ms_fp, index=False)
         print(f"Accepted H-bonding pairs in df: {df.loc[df['free'].gt(0)].shape[0]}")
     
         return df
@@ -703,9 +700,10 @@ class MSout_hb:
                     # get the index vector of the current, extended state for querying the matrix:
                     xs = np.array([self.mat_iconfs.index(ic) for ic in current_state] + extended)
                     ni, nj = self.M[xs].nonzero()
-                    ni = np.array([xs[i] for i in ni])
+                    #ni = np.array([xs[i] for i in ni])
                     #print(f"corrected ni, {ni = }\n{nj = }")
-                    nij = list(zip(ni, nj))
+                    nij = [t for t in list(zip([xs[i] for i in ni], nj)) if t[1] in xs]
+                    #nij = list(zip(ni, nj))
                     # Note: tuples are (Mi,Mj)
                     for p in nij:
                         hb_pairs[p][0] += count
@@ -742,29 +740,37 @@ class MSout_hb:
         return
 
     def dicts2csv(self):
+        def get_resid(confid:str) -> str:
+            return f"{res3_to_res1[confid[:3]]}_"+confid[5]+ str(int(confid[6:-4]))
+        
         if self.hb_pairs:
-            dfp = pd.DataFrame.from_dict(self.hb_pairs, orient='index',
-                                         columns = ["ms_count","ms_occ"]).reset_index()
-            dfp = dfp.rename({"index":"Mij"}, axis=1)
-            dfp[["Mi","Mj"]] = dfp["Mij"].apply(lambda x: pd.Series([x[0],x[1]]))
-            dfp[["donor","acceptor"]] = dfp["Mij"].apply(lambda x: pd.Series([self.mat_ires2confid[x[0]],
-                                                                            self.mat_ires2confid[x[1]]]))
-            pairs_out = dfp[["Mij","donor","acceptor","ms_count","ms_occ"]].sort_values(by="ms_count",
-                                                                                        ascending=False)
-            pairs_out.to_csv(self.pairs_csv, index=False)
+            dfp = pd.DataFrame.from_dict(self.hb_pairs, orient="index",
+                                         columns=["ms_count","ms_occ"]).reset_index()
+            dfp[["Mi","Mj"]] = dfp["index"].apply(lambda x: pd.Series([int(x[0]),int(x[1])]))
+            dfp[["res_d","res_a"]] = dfp["index"].apply(lambda x: pd.Series([get_resid(self.mat_ires2confid[x[0]]),
+                                                                             get_resid(self.mat_ires2confid[x[1]])]))
+            dfp = dfp.drop(columns=["index"])
+            dfp["res_pair"] = list(zip(dfp["res_d"], dfp["res_a"]))
 
-            # update expanded hah file:
-            dfp = dfp.drop(columns=["Mij","donor","acceptor"])
-            hah_df = pd.read_csv(self.hah_ms_fp, sep="\t")
-            hah_df = hah_df.merge(dfp, left_on=["Mi","Mj"], right_on=["Mi","Mj"])
-            hah_df.to_csv(self.hah_ms_fp, index=False)
-
+            gp = dfp.groupby(["res_d", "res_a"]).agg({"Mi":'count',"ms_count":'sum', "ms_occ":'sum'})
+            gdf = gp.reset_index()
+            gdf = gdf.rename(columns={"Mi": "sum_of"})
+            gdf["res_pair"] = list(zip(gdf["res_d"], gdf["res_a"]))
+            gdf2 = gdf.merge(dfp, left_on=["res_pair"], right_on=["res_pair"], how='left')
+            gdf2 = gdf2.drop(columns=["ms_count_y","ms_occ_y","res_d_y","res_a_y"])
+            gdf2 = gdf2.drop_duplicates(subset="res_pair")
+            gdf2 = gdf2.rename(columns={"res_d_x":"res_d", "res_a_x":"res_a",
+                                        "ms_count_x": "ms_count", "ms_occ_x": "ms_occ"})
+            gdf2 = gdf2[["Mi","Mj","res_d","res_a",
+                         "sum_of","ms_count","ms_occ"]].sort_values(by="ms_count", ascending=False)
+            gdf2.to_csv(self.pairs_csv, index=False)
+    
         if self.hb_states:
             dfs = pd.DataFrame.from_dict(self.hb_states, orient='index',
                                         columns = ["ms_count","ms_occ"]).reset_index()
             dfs["state_id"] = None
             for rx, ro in dfs.iterrows():
-                dfs.loc[rx,"state_id"] = ", ".join(f"({self.mat_ires2confid[tp[0]]},{self.mat_ires2confid[tp[1]]})"
+                dfs.loc[rx,"state_id"] = ",".join(f"({self.mat_ires2confid[tp[0]]},{self.mat_ires2confid[tp[1]]})"
                                                     for tp in ro["index"])
             dfs = dfs[["state_id", "ms_count","ms_occ"]]
             dfs = dfs.sort_values(by="ms_count", ascending=False)
