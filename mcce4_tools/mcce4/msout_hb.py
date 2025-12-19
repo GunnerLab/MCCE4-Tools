@@ -701,9 +701,8 @@ class MSout_hb:
                     xs = np.array([self.mat_iconfs.index(ic) for ic in current_state] + extended)
                     ni, nj = self.M[xs].nonzero()
                     #ni = np.array([xs[i] for i in ni])
-                    #print(f"corrected ni, {ni = }\n{nj = }")
                     nij = [t for t in list(zip([xs[i] for i in ni], nj)) if t[1] in xs]
-                    #nij = list(zip(ni, nj))
+
                     # Note: tuples are (Mi,Mj)
                     for p in nij:
                         hb_pairs[p][0] += count
@@ -739,10 +738,12 @@ class MSout_hb:
 
         return
 
-    def dicts2csv(self):
+    def dicts2csv0(self):
+        """version with grouping; needs revising."""
         def get_resid(confid:str) -> str:
-            return f"{res3_to_res1[confid[:3]]}_"+confid[5]+ str(int(confid[6:-4]))
-        
+            id1 = res3_to_res1.get(confid[:3], confid[:3])
+            return f"{id1}_" + confid[5] + str(int(confid[6:-4]))
+    
         if self.hb_pairs:
             dfp = pd.DataFrame.from_dict(self.hb_pairs, orient="index",
                                          columns=["ms_count","ms_occ"]).reset_index()
@@ -778,6 +779,42 @@ class MSout_hb:
 
         return
 
+    def dicts2csv(self):
+        def get_resid(confid:str) -> str:
+            id1 = res3_to_res1.get(confid[:3], confid[:3])
+            return f"{id1}_" + confid[5] + str(int(confid[6:-4]))
+        
+        if self.hb_pairs:
+            dfp = pd.DataFrame.from_dict(self.hb_pairs, orient="index",
+                                         columns=["ms_count","ms_occ"]).reset_index()
+            dfp[["Mi","Mj"]] = dfp["index"].apply(lambda x: pd.Series([int(x[0]),int(x[1])]))
+            dfp[["donor","acceptor"]] = dfp["index"].apply(lambda x: pd.Series([self.mat_ires2confid[x[0]],
+                                                                                self.mat_ires2confid[x[1]]]))
+            dfp[["res_d","res_a"]] = dfp["index"].apply(lambda x: pd.Series([get_resid(self.mat_ires2confid[x[0]]),
+                                                                             get_resid(self.mat_ires2confid[x[1]])]))
+            
+            pairs_out = dfp[["Mi","Mj","donor","acceptor","res_d","res_a","ms_count","ms_occ"]]
+            pairs_out = pairs_out.sort_values(by="ms_count", ascending=False)
+            pairs_out.to_csv(self.pairs_csv, index=False)
+
+            dfp = dfp.drop(columns=["index","donor","acceptor","res_d","res_a"])
+            # update expanded hah file with hb_pairs count, occ:
+            hah_df = pd.read_csv(self.hah_ms_fp)
+            hah_df = hah_df.merge(dfp, left_on=["Mi","Mj"], right_on=["Mi","Mj"])
+            hah_df.to_csv(self.hah_ms_fp, index=False)
+    
+        if self.hb_states:
+            dfs = pd.DataFrame.from_dict(self.hb_states, orient='index',
+                                        columns = ["ms_count","ms_occ"]).reset_index()
+            dfs["state_id"] = None
+            for rx, ro in dfs.iterrows():
+                dfs.loc[rx,"state_id"] = ",".join(f"({self.mat_ires2confid[tp[0]]},{self.mat_ires2confid[tp[1]]})"
+                                                    for tp in ro["index"])
+            dfs = dfs[["state_id", "ms_count","ms_occ"]]
+            dfs = dfs.sort_values(by="ms_count", ascending=False)
+            dfs.to_csv(self.states_csv, index=False)
+
+        return
 
     def __str__(self):
         out = (f"Conformers: {self.CI.n_confs:,}\n"
