@@ -14,6 +14,7 @@ CHANGELOG:
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
 from collections import defaultdict
 from pathlib import Path
+from pprint import pformat
 import sys
 import time
 from typing import Dict, List, Tuple, Union
@@ -33,6 +34,15 @@ from mcce4.io_utils import get_mcce_filepaths, get_msout_size_info
 from mcce4.io_utils import reader_gen
 from mcce4.io_utils import show_elapsed_time
 from mcce4.io_utils import table_to_df
+
+
+NO_MONTE_MSG = """
+The MC method for H-bonding states must be MONTE.
+If you can rerun step4.py, change the NSTATE_MAX key to a low
+value, e.g.: 100, instead of 1M.
+If you want the processing of the analytical solution to be reinstated 
+please, open a feature request at https://github.com/GunnerLab/MCCE4-Tools/issues
+"""
 
 
 HAH_FNAME_INIT = "step2_out_hah.txt"
@@ -146,12 +156,9 @@ class ConfInfo:
                 "confid:0, crg:1, cx:2, is_fixed:3, rx:4, is_free:5")
         self.n_confs = conf_info.shape[0]
         self.max_iconf, self.max_ires = np.max(conf_info[:,[2,4]], axis=0)
-        # sumcrg for not is_free:
-        #self.background_crg = conf_info[np.where(conf_info[:,-1]==0), 1].sum()
-
-        # sumcrg for is_fixed on:
-        #self.background_crg = conf_info[np.where(conf_info[:,3]==1), 1].sum()
-        self.background_crg = conf_info[np.where((conf_info[:,-1]==0) & (conf_info[:,3]==1)), 1].sum()
+        # sumcrg for not is_free & is_fixed on:
+        self.background_crg = conf_info[np.where((conf_info[:,-1]==0) 
+                                                  & (conf_info[:,3]==1)), 1].sum()
         print(f" Background crg: {self.background_crg}",
               f" n_confs: {self.n_confs}", sep="\n")
         self.conf_info = conf_info
@@ -251,12 +258,13 @@ class MSout_hb:
 
         # data from the msout file 'header':
         self.HDR = MsoutHeaderData(self.msout_fp)
+        if not self.HDR.is_monte:
+            sys.exit(NO_MONTE_MSG)
 
-        # conformer info -> conf_info head3 & HDR lookup array
-        # fields: confid:0, crg:1, ic:2, off:3, ir:4, is_free:5
         start_t = time.time()
         self.CI = ConfInfo(self.h3_fp, verbose=self.verbose)
         # load the self.CI.conf_info lookup array:
+        # fields: confid:0, crg:1, iconf:2, is_fixed:3, ires:4, is_free:5
         self.CI.load(self.HDR.iconf2ires, self.HDR.fixed_iconfs)
         # + CI.n_confs, CI.max_iconf, CI.max_ires
         show_elapsed_time(start_t, info="Loading conf_info array")
@@ -286,23 +294,18 @@ class MSout_hb:
         self.df = self.expand_hah_data()
         show_elapsed_time(start_t, info="Expanding the hah file into a dataframe")
         
-        start_t = time.time()
-        self.M = self.get_hah_matrix()
-        if self.M is None:
+        print("Creating the hb pairs indicator matrix, I...")
+        self.I = self.get_hah_matrix()
+        if self.I is None:
             sys.exit("Could not create the hb pairs matrix.")
 
         if self.verbose:
             mat_pair_i, mat_pair_j = self.M.nonzero()
             print("Mij set to 1 in matrix:", list(zip(mat_pair_i, mat_pair_j)), sep="\n")
-        show_elapsed_time(start_t, info="Creating the hb pairs matrix M")
 
-        skip = False
-        if skip:
-            return
-        
         # Attributes populated by the 'load_ms_hb' function:
         self.n_space: int = None     # size of state space
-        # dicts to receive each H-bond pair (str key: space-less d/a tuple of iconfs) 
+        # dicts to receive each H-bond pair (str key: tuple of iconfs) 
         # or the H-bond state (str key: semi-colon separated, space-less d/a tuples).
         # Values for both dicts items: [count, occ]
         self.hb_pairs: dict = None
@@ -442,7 +445,7 @@ class MSout_hb:
             if self.n_bk:
                 self.mat_res.extend([[dic] for dic in self.dm_iconfs])
                 assert len(self.mat_res) == n_free_res + self.n_bk
-                ix = ix + self.n_bk + 1
+                ix = ix + 1
         
         if self.n_bk:
             self.bkid2dmic = {}
@@ -454,7 +457,6 @@ class MSout_hb:
         self.n_mat_res = len(self.mat_res)
         self.mat_iconf2ires = {}  # iconf to extended
         self.mat_ires2confid = {}
-        #self.mat_ires2iconf = {}
         ix = self.HDR.n_free_res -1 + self.n_fx + 1
         for ires, lst in enumerate(self.mat_res):
             for iconf in lst:
@@ -633,8 +635,9 @@ class MSout_hb:
         return csr_matrix(([1]*n_rows, (df["Mi"].values, df["Mj"].values)),
                           shape=(N, N))
 
-    def load_ms_hb(self):
+    def load_ms_hb0(self):
         """Process the 'msout file' for H-bond data using the hb pairs matrix
+        Previous implementation; to be retired.
         """
         found_mc = False
         newmc = False
@@ -738,8 +741,132 @@ class MSout_hb:
 
         return
 
+    def load_ms_hb(self):
+        """Process the 'msout file' for H-bond data using the hb pairs matrix
+        """
+        found_mc = False
+        newmc = False
+        hb_pairs =  defaultdict(lambda: [0, 0.])
+        hb_states =  defaultdict(lambda: [0, 0.])
+        tot_mc_lines = 0
+        states = 0
+        # precompute the unchanging indices:
+        extended = []
+        if not (self.n_fx + self.n_bk):
+            if self.n_fx:
+                extended.extend([self.mat_iconfs.index(ic) for ic in self.fx_iconfs])
+            if self.n_bk:
+                extended.extend([self.mat_iconfs.index(ic) for ic in self.dm_iconfs])
+
+        Ix, Iy = self.I.nonzero()
+        # pairs & states matrices cannot be sparse
+        S = self.I.todense()
+        P = S.copy() * 0
+
+        msout_data = reader_gen(self.msout_fp)
+        for lx, line in enumerate(msout_data, start=1):
+            if lx <= N_HDR:
+                continue
+            line = line.strip()
+            if not line or line[0] == "#":
+                continue
+            else:
+                # find the next MC record
+                if line.startswith("MC:"):
+                    found_mc = True
+                    newmc = True
+                    tot_mc_lines += 1
+                    continue
+
+                if newmc:
+                    # line with candidate state for MC sampling, e.g.:
+                    # 41:0 3 16 29 41 52 54 68 70 73 ... # ^N: number of free iconfs in state
+                    current_state = [int(i) for i in line.split(":")[1].split()]
+                    xs = np.array([self.HDR.free_iconfs.index(ic) for ic in current_state] + extended)
+
+                    newmc = False
+                    continue
+
+                if found_mc:
+                    fields = line.split(",")
+                    if len(fields) < 3:
+                        continue
+
+                    tot_mc_lines += 1
+                    # state_e = float(fields[0])
+                    count = int(fields[1])
+                    states += count
+                    # flipped: 
+                    for ic in [int(c) for c in fields[2].split()]:
+                        ir = self.HDR.iconf2ires[ic]
+                        xs[ir] = self.HDR.free_iconfs.index(ic)
+
+                    # any cells to zero out?
+                    xz = Ix[np.where(np.isin(Ix, xs)==False)]
+                    if len(xz):
+                        S[xz, :] = 0
+                    yz = Iy[np.where(np.isin(Iy, xs)==False)]
+                    if len(yz):
+                        S[:, yz] = 0
+                    # increment P with S
+                    P += S*count
+                    D = self.I - S
+                    di, dj = D.nonzero()
+                    # check if cells to decrement already have a count:
+                    if len(di):
+                        # # check val: if < count => 0, else sub count
+                        for i, j in zip(di, dj):
+                            val = P[i, j]
+                            if val <= count:
+                                P[i, j] = 0
+                            else:
+                                P[i, j] -= count
+
+                    if tot_mc_lines % self.n_skip == 0:
+                        si, sj = S.nonzero()
+                        sij = tuple(zip(si, sj))
+                        hb_states[sij][0] += count
+
+                    # reset S to I values for next state:
+                    S[di, dj] = 1
+
+        pi, pj = P.nonzero()
+        for p in zip(pi, pj):
+            cnt = P[p[0], p[1]]
+            hb_pairs[p][0] += cnt
+            hb_pairs[p][1] = cnt/states
+
+        # update states occ:
+        for s in hb_states:
+            cnt = hb_states[s][0]
+            hb_states[s][1] = cnt/states
+
+        self.hb_pairs = dict(hb_pairs)
+        self.hb_states = dict(hb_states)
+        self.n_space = states
+        print(f"State space: {self.n_space:,}")
+        print(f"H-bonding states: {len(self.hb_states):,}")
+        print(f"H-bonding pairs: {len(self.hb_pairs):,}")
+        if self.verbose:
+            sum_occ_pairs = np.array(list(self.hb_pairs.values()))[:,1].sum()
+            sum_cnt = np.array(list(self.hb_states.values()))[:,0].sum()
+            sum_occ = np.array(list(self.hb_states.values()))[:,1].sum()
+            print("Check on sum totals:")
+            print(f"    pairs occ: {sum_occ_pairs:.2%}")
+            print(f" states count: {sum_cnt:,.0f}")
+            print(f"   states occ: {sum_occ:.2%}")
+
+        if tot_mc_lines != self.mc_lines:
+            # accepted ms with flipped iconfs
+            print(f"Processed mc lines: {tot_mc_lines:,}")
+        else:
+            print(f"Accepted states lines: ~ {self.mc_lines:,}\n")
+
+        return
+
     def dicts2csv0(self):
-        """version with grouping; needs revising."""
+        """version with grouping; needs revising when grouping conditions
+        are known."""
         def get_resid(confid:str) -> str:
             id1 = res3_to_res1.get(confid[:3], confid[:3])
             return f"{id1}_" + confid[5] + str(int(confid[6:-4]))
@@ -785,6 +912,14 @@ class MSout_hb:
             return f"{id1}_" + confid[5] + str(int(confid[6:-4]))
         
         if self.hb_pairs:
+            # temporarily, save the unconverted dicts to text files
+            # so that they can be loaded without re-running ms_hbnets
+            # in order to implement the grouping
+            pdict_fp = self.pairs_csv.with_suffix(".dict")
+            pdict_fp.write_text(pformat(self.hb_pairs)+"\n")
+            sdict_fp = self.states_csv.with_suffix(".dict")
+            sdict_fp.write_text(pformat(self.hb_states)+"\n")
+
             dfp = pd.DataFrame.from_dict(self.hb_pairs, orient="index",
                                          columns=["ms_count","ms_occ"]).reset_index()
             dfp[["Mi","Mj"]] = dfp["index"].apply(lambda x: pd.Series([int(x[0]),int(x[1])]))
