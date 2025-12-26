@@ -6,10 +6,6 @@ Module: msout_hb.py
 Module for MSout_hb class, the numpy-based ms_out/ file loader for outputing
 H-bonds information from microstates using the 'hah' file', the output of the
 detect_hbonds tool.
-
-Notes:
-
-CHANGELOG:
 """
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
 from collections import defaultdict
@@ -148,12 +144,12 @@ class ConfInfo:
         conf_info[fixed_iconfs, 3] = 1
 
         # populate the rx of free res, if possible
-        for i, (_, _, cx, *_) in enumerate(conf_info):
-             conf_info[i][-2] = iconf2ires.get(cx, -9)
+        for i, (_, _, cx, *_) in enumerate(conf_info): 
+            conf_info[i][-2] = iconf2ires.get(cx, -1)
 
         if self.verbose:
             print(" Head3 lookup array 'conf_info' fields:", 
-                "confid:0, crg:1, cx:2, is_fixed:3, rx:4, is_free:5")
+                " confid:0, crg:1, iconf:2, is_fixed:3, ires:4, is_free:5")
         self.n_confs = conf_info.shape[0]
         self.max_iconf, self.max_ires = np.max(conf_info[:,[2,4]], axis=0)
         # sumcrg for not is_free & is_fixed on:
@@ -181,7 +177,7 @@ class ConfInfo:
         try:
             val = self.conf_info[np.where(self.conf_info[:,2]==iconf)][0,0]
         except IndexError:
-            val = None
+            val = "?"
 
         return val
 
@@ -249,7 +245,7 @@ class MSout_hb:
          self.hah_fp, self.hah_ms_fp,
          self.pairs_csv, self.states_csv) = get_hb_paths(self.run_dir, ph=ph, eh=eh)
 
-        # ph, eh as string for keeping same precision as in msoutfile:
+        # ph, eh as string to match msoutfile:
         self.pheh_str = self.msout_fp.stem[:-2]
 
         self.mc_lines, self.n_skip, self.n_MC = get_msout_size_info(self.msout_fp,
@@ -276,18 +272,16 @@ class MSout_hb:
         self.extend_bk: List[str] = []
         self.n_bk: int = None
         self.dm_iconfs: List[int] = None
-        self.extend_classes: List[int] = None
 
         # attributes populated by set_extended_accessors
         self.mat_res: List[List[int]] = None
-        self.n_mat_res: int = None
+        self.n_mat_res: int = 0
         self.mat_iconfs: List[int] = None
-        self.n_mat_ics: int = None
-        self.mat_iconf2ires: dict = None
-        self.mat_ires2confid: dict = None
-        self.dmic2bkid: dict = None
-        self.bkid2dmic: dict = None
-
+        self.n_mat_ics: int = 0
+        self.mat_iconf2ires = {}
+        self.mat_ires2confid = {}
+        self.bkid2dmic = {}
+        
         # free and mixed hb pairs + needed indices
         print(f"Creating the expanded hah file {self.hah_ms_fp!s}...")
         start_t = time.time()
@@ -300,7 +294,7 @@ class MSout_hb:
             sys.exit("Could not create the hb pairs matrix.")
 
         if self.verbose:
-            mat_pair_i, mat_pair_j = self.M.nonzero()
+            mat_pair_i, mat_pair_j = self.I.nonzero()
             print("Mij set to 1 in matrix:", list(zip(mat_pair_i, mat_pair_j)), sep="\n")
 
         # Attributes populated by the 'load_ms_hb' function:
@@ -429,49 +423,44 @@ class MSout_hb:
             return
 
         self.mat_res = self.HDR.free_residues.copy()
-        n_free_res = len(self.mat_res)
-        ix = n_free_res - 1  # last index of free res
+        ix = self.HDR.n_free_res  # first index of next added conf
 
         if self.n_fx:
             # extend for fixed, same format as free_residues:
             self.mat_res.extend([fic] for fic in self.fx_iconfs)
-            assert len(self.mat_res) == n_free_res + self.n_fx
-
             if self.n_bk:
+                dmic2bkid = {}
                 self.mat_res.extend([[dic] for dic in self.dm_iconfs])
-                assert len(self.mat_res) == n_free_res + self.n_fx + self.n_bk
-                ix = ix + self.n_fx + 1 # 1st index of bk slots
+                ix = ix + self.n_fx # 1st index of bk slots
+                # mapping dm confid-> new slot:
+                for bx, cid in enumerate(self.extend_bk):
+                    self.bkid2dmic.update({cid: self.mat_res[(ix + bx)][0]})
+                dmic2bkid = {v: k for k, v in self.bkid2dmic.items()}
         else:
             if self.n_bk:
+                dmic2bkid = {}
                 self.mat_res.extend([[dic] for dic in self.dm_iconfs])
-                assert len(self.mat_res) == n_free_res + self.n_bk
-                ix = ix + 1
-        
-        if self.n_bk:
-            self.bkid2dmic = {}
-            # mapping dm confid-> new slot:
-            for bx, cid in enumerate(self.extend_bk):
-                self.bkid2dmic.update({cid: self.mat_res[(ix + bx)][0]})
-            self.dmic2bkid = {v: k for k, v in self.bkid2dmic.items()}
+                # mapping dm confid-> new slot:
+                for bx, cid in enumerate(self.extend_bk):
+                    self.bkid2dmic.update({cid: self.mat_res[(ix + bx)][0]})
+                dmic2bkid = {v: k for k, v in self.bkid2dmic.items()}
 
         self.n_mat_res = len(self.mat_res)
-        self.mat_iconf2ires = {}  # iconf to extended
-        self.mat_ires2confid = {}
-        ix = self.HDR.n_free_res -1 + self.n_fx + 1
         for ires, lst in enumerate(self.mat_res):
             for iconf in lst:
                 self.mat_iconf2ires[iconf] = ires
                 if iconf <= self.CI.max_iconf:
                     self.mat_ires2confid[ires] = self.CI.get_confid(iconf)
                 else:
-                    self.mat_ires2confid[ires] = self.dmic2bkid.get(iconf)
+                    self.mat_ires2confid[ires] = dmic2bkid.get(iconf)
 
         self.mat_iconfs = list(self.mat_iconf2ires.keys())
         self.n_mat_ics = len(self.mat_iconfs)
-        N = n_free_res + self.n_fx + self.n_bk
+       
         if self.verbose:
+            N = self.HDR.n_free_res + self.n_fx + self.n_bk
             print("Check:",
-                f"n_free_res {n_free_res} + n_fixed {self.n_fx} +",
+                f"n_free_res {self.HDR.n_free_res} + n_fixed {self.n_fx} +",
                 f"n_bk {self.n_bk} ?= n_mat_res {self.n_mat_res} ::",
                 f"{N==self.n_mat_res}")
         
@@ -495,13 +484,10 @@ class MSout_hb:
         print(" Number of extension slots from mixed pairs with BK:",len(self.extend_bk))
         self.n_fx = len(self.extend_fixed)
         self.n_bk = len(self.extend_bk)
-        self.extend_classes = []  # [0, -1] :: fixed, BK
         if self.n_fx:
-            self.extend_classes.extend([0])
             # get iconfs values for fixed
             self.fx_iconfs = [self.CI.get_iconf(xid) for xid in self.extend_fixed]
         if self.n_bk:
-            self.extend_classes.extend([-1])
             # to avoid collisions, dummy ics for bk confs start past last iconf:
             dmic_start = self.CI.n_confs
             # create dm iconfs values for bk:
@@ -520,7 +506,6 @@ class MSout_hb:
             return pair_classes[(ro["free_d"], ro["free_a"])]
     
         def get_Mx(ro: pd.Series) -> int:
-            #return self.mat_iconf2ires.get(ro)  # None
             return self.HDR.iconf2ires.get(ro, -1)
     
         df = self.load_hah_file()
@@ -542,14 +527,13 @@ class MSout_hb:
         df["free"] = df.apply(is_free_pair, axis=1)
 
         # Add cols for final (extended) matrix i,j; init with dummy value
-        df["Mi"] = -9
-        df["Mj"] = -9
+        df["Mi"] = -1
+        df["Mj"] = -1
 
         # assign ires to the free iconf(s) in pairs destined for matrix;
-        # classes 1,2 & 3):
-
+        # classes 1,2 & 3:
         valid = df["free"].gt(0)
-        # fixed & bk iconfs will have NaN:
+        # fixed & bk iconfs will be -1:
         df.loc[valid, "Mi"] = df.loc[valid,"iconf1"].apply(get_Mx)
         df.loc[valid, "Mj"] = df.loc[valid,"iconf2"].apply(get_Mx)
 
@@ -559,23 +543,14 @@ class MSout_hb:
     
         # df.apply functions:        
         def get_bk_ic(ro: pd.Series) -> int:
-            if self.bkid2dmic is None:
-                return -2
+            # -2: invalid value
             return self.bkid2dmic.get(ro, -2)
 
         def get_new_Mx(ro: pd.Series) -> int:
+            # -3: invalid value
             return self.mat_iconf2ires.get(ro, -3)
 
-        # d_free = df["free_d"]==1
-        # fr_msk1 = valid & d_free
-        # if fr_msk1.any():
-        #     df.loc[fr_msk1, "Mi"] = df.loc[fr_msk1,"iconf1"].apply(get_Mx)
-
-        # a_free = df["free_a"]==1
-        # fr_msk2 = valid & a_free
-        # if fr_msk2.any():    
-        #     df.loc[fr_msk2, "Mj"] = df.loc[fr_msk2,"iconf2"].apply(get_Mx)
-
+        # get mat indices for fixed and bk confs:
         d_fix = df["free_d"]==0
         fx_msk1 = valid & d_fix
         if fx_msk1.any():
@@ -598,8 +573,9 @@ class MSout_hb:
             df.loc[bk_msk2, "iconf2dm"] = df.loc[bk_msk2, "confid_acceptor"].apply(get_bk_ic)
             df.loc[bk_msk2, "Mj"] = df.loc[bk_msk2, "iconf2dm"].apply(get_new_Mx)
 
-        df["Mi"] = df["Mi"].astype("int8")
-        df["Mj"] = df["Mj"].astype("int8")
+        df["Mi"] = df["Mi"].astype("int")
+        df["Mj"] = df["Mj"].astype("int")
+
         # save
         df.to_csv(self.hah_ms_fp, index=False)
         print(f"Accepted H-bonding pairs in df: {df.loc[df['free'].gt(0)].shape[0]}")
@@ -625,8 +601,11 @@ class MSout_hb:
         check_neg = negi | negj
         if check_neg.any():
             neg = df.loc[check_neg]
-            neg.shape[0]
-            sys.exit(f"Some {neg.shape[0]} Mij's have negative values!")
+            # save to investigate:
+            neg_fp = self.hah_ms_fp.with_suffix(".unmapped.csv")
+            neg.to_csv(neg_fp, index=False)
+            print(f"ERROR: {neg.shape[0]} matrix indices have negative values!")
+            sys.exit(f"Unmapped iconfs saved to {neg_fp!s}")
 
         n_rows = df.shape[0]
         print(f"Unique H-bonding pairs for matrix: {n_rows}")
@@ -637,7 +616,7 @@ class MSout_hb:
 
     def load_ms_hb0(self):
         """Process the 'msout file' for H-bond data using the hb pairs matrix
-        Previous implementation; to be retired.
+        Previous implementation; handles enumarated MC.
         """
         found_mc = False
         newmc = False
@@ -702,8 +681,7 @@ class MSout_hb:
 
                     # get the index vector of the current, extended state for querying the matrix:
                     xs = np.array([self.mat_iconfs.index(ic) for ic in current_state] + extended)
-                    ni, nj = self.M[xs].nonzero()
-                    #ni = np.array([xs[i] for i in ni])
+                    ni, nj = self.I[xs].nonzero()
                     nij = [t for t in list(zip([xs[i] for i in ni], nj)) if t[1] in xs]
 
                     # Note: tuples are (Mi,Mj)
@@ -743,12 +721,13 @@ class MSout_hb:
 
     def load_ms_hb(self):
         """Process the 'msout file' for H-bond data using the hb pairs matrix
+        Implementation with dense S & P matrices; effective hb pairs count.
         """
         found_mc = False
         newmc = False
         hb_pairs =  defaultdict(lambda: [0, 0.])
         hb_states =  defaultdict(lambda: [0, 0.])
-        tot_mc_lines = 0
+        mc_lines = 0
         states = 0
         # precompute the unchanging indices:
         extended = []
@@ -761,7 +740,7 @@ class MSout_hb:
         Ix, Iy = self.I.nonzero()
         # pairs & states matrices cannot be sparse
         S = self.I.todense()
-        P = S.copy() * 0
+        P = self.I.todense() * 0
 
         msout_data = reader_gen(self.msout_fp)
         for lx, line in enumerate(msout_data, start=1):
@@ -775,7 +754,6 @@ class MSout_hb:
                 if line.startswith("MC:"):
                     found_mc = True
                     newmc = True
-                    tot_mc_lines += 1
                     continue
 
                 if newmc:
@@ -792,7 +770,7 @@ class MSout_hb:
                     if len(fields) < 3:
                         continue
 
-                    tot_mc_lines += 1
+                    mc_lines += 1
                     # state_e = float(fields[0])
                     count = int(fields[1])
                     states += count
@@ -802,16 +780,16 @@ class MSout_hb:
                         xs[ir] = self.HDR.free_iconfs.index(ic)
 
                     # any cells to zero out?
-                    xz = Ix[np.where(np.isin(Ix, xs)==False)]
+                    xz = Ix[np.isin(Ix, xs)==False]
                     if len(xz):
                         S[xz, :] = 0
-                    yz = Iy[np.where(np.isin(Iy, xs)==False)]
+                    yz = Iy[np.isin(Iy, xs)==False]
                     if len(yz):
                         S[:, yz] = 0
                     # increment P with S
                     P += S*count
-                    D = self.I - S
-                    di, dj = D.nonzero()
+                    # indices for decrement
+                    di, dj = (self.I - S).nonzero()
                     # check if cells to decrement already have a count:
                     if len(di):
                         # # check val: if < count => 0, else sub count
@@ -822,13 +800,13 @@ class MSout_hb:
                             else:
                                 P[i, j] -= count
 
-                    if tot_mc_lines % self.n_skip == 0:
+                    if mc_lines % self.n_skip == 0:
                         si, sj = S.nonzero()
                         sij = tuple(zip(si, sj))
                         hb_states[sij][0] += count
 
                     # reset S to I values for next state:
-                    S[di, dj] = 1
+                    S[Ix, Iy] = 1
 
         pi, pj = P.nonzero()
         for p in zip(pi, pj):
@@ -856,14 +834,13 @@ class MSout_hb:
             print(f" states count: {sum_cnt:,.0f}")
             print(f"   states occ: {sum_occ:.2%}")
 
-        if tot_mc_lines != self.mc_lines:
+        if mc_lines != self.mc_lines:
             # accepted ms with flipped iconfs
-            print(f"Processed mc lines: {tot_mc_lines:,}")
+            print(f"Processed mc lines: {mc_lines:,}")
         else:
             print(f"Accepted states lines: ~ {self.mc_lines:,}\n")
 
         return
-
     def dicts2csv0(self):
         """version with grouping; needs revising when grouping conditions
         are known."""
