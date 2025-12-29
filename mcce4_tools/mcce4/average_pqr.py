@@ -381,7 +381,7 @@ class AverPQR:
             return
 
         hdr = "rec,resid,seq,atm,res,resnum,x,y,z,crg,rad".split(",")
-        pqrdf = pd.read_csv(self.pqr_with_resids_fp, sep='\s+', header=None, names=hdr)
+        pqrdf = pd.read_csv(self.pqr_with_resids_fp, sep=r"\s+", header=None, names=hdr)
         lines = []
         new_pair = None, None
         neutral = NEUTRAL_RES + ["CYD"]
@@ -409,10 +409,10 @@ class AverPQR:
             # df.apply functtion
             return row["conf"][4:-1], row["conf"][:3]
         
-        sumdf = pd.read_csv(self.sumcrg_fp, sep="\s+", header=None, names=["resid", "res", "pqr_crg"])
+        sumdf = pd.read_csv(self.sumcrg_fp, sep=r"\s+", header=None, names=["resid", "res", "pqr_crg"])
         sumdf.set_index(["resid", "res"], inplace=True)
 
-        sumout = pd.read_csv(self.sumcrg_out_fp, sep="\s+", header=0, skipfooter=4, engine="python")
+        sumout = pd.read_csv(self.sumcrg_out_fp, sep=r"\s+", header=0, skipfooter=4, engine="python")
         cols = sumout.columns.tolist()
         prec = 1
         hdr_is_float = "." in cols[1]
