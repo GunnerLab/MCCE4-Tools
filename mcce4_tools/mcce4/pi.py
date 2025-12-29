@@ -87,7 +87,7 @@ def pdb_res_count(pdb_path: str, ionizable: bool=True, no_CYS:bool=True) -> dict
     """
     pdb = Path(pdb_path)
     lines = []
-    pattern = re.compile(r"^(ATOM.{9}CA.{6}|ATOM.{9}C   CTR).*", re.MULTILINE) 
+    pattern = re.compile(r"^(ATOM.{9}CA.{6}|ATOM.{9}C   CTR).*", re.MULTILINE)
     lines = pattern.findall(pdb.read_text())
     if not lines:
         sys.exit("CRTICAL: No ATOM lines found in", str(pdb))
@@ -95,29 +95,26 @@ def pdb_res_count(pdb_path: str, ionizable: bool=True, no_CYS:bool=True) -> dict
     is_standard = pdb.name != "step2_out.pdb"
     res_cnt = defaultdict(int)
     for line in lines:
-        _,_,_, res, *_ = line.split(maxsplit=4)
+        res = line[16:20].strip()   # e.g.: 'NTR', 'AGLU'
         if is_standard and (len(res) == 4):
-            # accept if alt=='A' (as it is accepted in mcce),
-            # but remove alt letter from key:
+            # accept if alt=='A' (accepted in mcce), but remove alt letter from key:
             if res[0] == "A":
-                res_cnt[res[-3:]] += 1  
-        else:
-            res_cnt[res] += 1
+                res = res[1:] 
+        
+        res_cnt[res] += 1
 
     if not is_standard:
-        # reset multiple CTR, NTR counts (due to nultiple conformers)
-        if res_cnt.get("CTR"):
-            res_cnt["CTR"] = 1
-        if res_cnt.get("NTR"):
-            res_cnt["NTR"] = 1
+       # reset multiple CTR, NTR counts (due to nultiple conformers)
+       if res_cnt.get("CTR"):
+           res_cnt["CTR"] = 1
+       if res_cnt.get("NTR"):
+           res_cnt["NTR"] = 1
             
     if ionizable:
+        IONIZ = IONIZABLE_RES.copy()
         if no_CYS:
-            IONIZ = IONIZABLE_RES.copy()
             IONIZ.remove("CYS")
-            return {ik: res_cnt[ik] for ik in IONIZ if ik in res_cnt}
-
-        return {ik: res_cnt[ik] for ik in IONIZABLE_RES if ik in res_cnt}
+        return {ik: res_cnt[ik] for ik in IONIZ if ik in res_cnt}
 
     return res_cnt
 
@@ -138,7 +135,7 @@ def crgHH(res: str) -> Union[list, None]:
     Wrapper for HH_crg function.
     Return the residue charge from Henderson-Hasselbalch function
     For acidic sites (Asp, Glu, CTR, CYS) charge = -1/(1+10^(pH-pKa))
-    For basic sites (Lys, Arg, His, N terminus) charge = +1/(1+10^(pKa-pH))
+    For basic sites (Lys, Arg, His, NTR) charge = +1/(1+10^(pKa-pH))
     """
     pk = SOLUTION_PKAS.get(res)
     if pk is None:
@@ -151,14 +148,12 @@ def crgHH(res: str) -> Union[list, None]:
     return [HH_crg(p, pk, kind) for p in range(15)]
 
 
-def theoretical_pI(pdb_path: str) -> Tuple[Union[float, None], str]:
+def theoretical_pI(res_cnt: dict) -> Tuple[Union[float, None], str]:
     """Return the theoretical pI calculated using solution pKas.
     Returns a 2-tuple:
      - First item: The theoretical pI calculated using solution pKas
      - Second item: status: 'OK' or an error message.
     """
-    res_cnt = pdb_res_count(pdb_path)
-
     theoret_crg = []
     for res, n in res_cnt.items():
         titr_vals = crgHH(res)
@@ -193,8 +188,8 @@ def sumcrg_pI(sumcrg_path: str="sum_crg.out") -> Tuple[Union[float, None], str]:
     if not sumcrg_fp.exists():
         return None, f"Not found: {sumcrg_fp.name} in {sumcrg_fp.parent!s}"
     
-    df = pd.read_csv(sumcrg_fp, sep="\s+")
-    if len(df.columns) -1 < 10:
+    df = pd.read_csv(sumcrg_fp, sep=r"\s+")
+    if len(df.columns) < 10:
         return None, "Not enough titration points (<10) in sum_crg.out file."
 
     cols = df.columns.tolist()
@@ -231,9 +226,10 @@ def protein_pI(args: Namespace):
     """
     Wrapper function to calculate the pI (isoelectric point) of a protein.
     """
-    pdb = Path(args.pdb)
+    pdb = Path(args.pdb).resolve()
     print(f"Protein: {pdb!s}")
-    theoret_pI, t_status = theoretical_pI(pdb)
+    res_cnt = pdb_res_count(pdb)
+    theoret_pI, t_status = theoretical_pI(res_cnt)
 
     sumcrg_fp = pdb.parent.joinpath("sum_crg.out")
     calculate_ppi = sumcrg_fp.exists()
@@ -256,6 +252,8 @@ def protein_pI(args: Namespace):
         else:
             print("Protein pI:", p_status)
 
+    print("Residues count:", res_cnt)
+
     return
 
 
@@ -273,9 +271,10 @@ def cli_parser():
         description=DESC
     )
     p.add_argument(
-        "pdb",
+        "-pdb",
         type=str,
-        help="Path to input pdb, which can be a standard or mcce pdb, e.g. 4LZT.pdb, step2_out.pdb."
+        default="./step2_out.pdb",
+        help="Path to input pdb, which can be a standard or mcce pdb; Default: ./step2_out.pdb."
     )
     p.set_defaults(func=protein_pI)
 
