@@ -152,12 +152,6 @@ class ConfInfo:
         # reset conf_info resix field to the index from cms_resids list or -1:
 
         # Getting resix w/o checking again for is_free was not sufficient,
-        # e.g. GLUA0007; iconfs 12, 13, 14 needed resix = -1, since not free:
-        # [12 'GLUA0007_' 1 0 0 2 0]
-        # [13 'GLUA0007_' 1 0 0 2 0]
-        # [14 'GLUA0007_' 1 0 0 2 0]
-        # [15 'GLUA0007_' 1 0 1 2 0]
-        # [16 'GLUA0007_' 1 0 1 2 -1]
         # conf_info: [iconf, resid, in_kinds, is_ioniz, is_fixed, is_free, resix, crg]
         for i, (_, resid, _, _, _, is_free, *_) in enumerate(conf_info):
             try:
@@ -168,18 +162,19 @@ class ConfInfo:
                 # put sentinel flag for unmatched res:
                 resix = -1
             conf_info[i][-2] = resix
-
-        print("\nHead3 lookup array 'conf_info' fields ::",
-               "iconf:0, resid:1, in_kinds:2, is_ioniz:3,",
-               "is_fixed:4, is_free:5, resix:6, crg:7\n")
+        if self.verbose:
+            print("\nHead3 lookup array 'conf_info' fields ::",
+                "iconf:0, resid:1, in_kinds:2, is_ioniz:3,",
+                "is_fixed:4, is_free:5, resix:6, crg:7\n")
 
         self.n_confs = conf_info.shape[0]
         # sumcrg for not is_free & is_fixed on:
         # conf_info: [iconf, resid, in_kinds, is_ioniz, is_fixed, is_free, resix, crg]
         self.background_crg = conf_info[np.where((conf_info[:,-3]==0) 
                                                   & (conf_info[:,-4]==1)), -1].sum()
-        print(f" Background crg: {self.background_crg}",
-              f" n_confs: {self.n_confs}", sep="\n")
+        if self.verbose:
+            print(f" Background crg: {self.background_crg}",
+                  f" n_confs: {self.n_confs}", sep="\n")
         self.conf_info = conf_info
 
         return
@@ -263,34 +258,15 @@ class MSout_np:
         self.validate_kwargs(mc_load, res_kinds, with_tautomers)
 
         self.HDR = MsoutHeaderData(self.msout_fp)
-        # self.T: float = ROOMT
-        # self.pH: float = 7.0
-        # self.Eh: float = 0.0
-        # self.method: str = ""
-        # self.is_monte: bool = False
-        # self.fixed_iconfs: List[int] = []
-        # self.n_fixed_ics: int = 0
-        # self.free_residues: List[List[int]] = []
-        # self.n_free_res: int = 0
-        # self.iconf2ires: Dict = {}
-        # self.free_iconfs: List[int] = []
-        # self.n_free_ics: int = 0
 
         self.CI = ConfInfo(self.h3_fp, verbose=self.verbose)
-        # CI attributes:
-            # self.conf_ids
-            # self.n_confs
-            # self.cms_resids  # :: list of resids defining a cms
-            # self.n_resids
-            # self.background_crg
-            # self.conf_info
         # load the self.CI.conf_info lookup array:
         # fields: iconf:0, resid:1, in_kinds:2, is_ioniz:3, is_fixed:4, is_free:5, resix:6, crg:7
         self.CI.load(self.HDR.iconf2ires, self.HDR.fixed_iconfs, self.with_tautomers,
                      residue_kinds=self.res_kinds)
         # copy from CI.conf_info
         self.conf_info = self.CI.conf_info
-        self.cms_resids = self.CI.cms_resids
+        self.cms_resids = self.CI.cms_resids  # :: list of resids defining a cms
         self.n_resids = self.CI.n_resids
 
         # attributes populated by the 'load' functions:
@@ -354,7 +330,7 @@ class MSout_np:
         else:
             if self.mc_load == "conf":
                 # CodeReview: it is `self.load_conf()` that is not setup for filtering
-                #             per res_kinds; `get_conf_info` can handle res_kinds if not None.
+                #             per res_kinds; `ConfInfo.load` can handle res_kinds if not None.
                 print("WARNING: Residue selection when loading conformer microstates",
                       "is not implemented: res_kinds reset to None.")
                 self.res_kinds = None
