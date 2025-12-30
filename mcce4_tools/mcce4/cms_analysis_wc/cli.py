@@ -110,5 +110,4 @@ def crgmswc_cli(argv=None):
          logger.error(f"An error occurred during pipeline execution: {e}", exc_info=True)
          sys.exit(1)
 
-    logger.info("Pipeline execution completed.")
     return

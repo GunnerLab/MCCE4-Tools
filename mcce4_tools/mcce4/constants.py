@@ -78,6 +78,7 @@ res3_to_res1 = {
     "TRP": "W",
     "TYR": "Y",
     "VAL": "V",
+    "PL9": "MQ8",
     }
 
 
