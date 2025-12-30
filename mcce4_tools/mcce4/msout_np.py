@@ -29,7 +29,6 @@ CHANGELOG:
             A calling cli tool would be responsible to define a default.
 """
 from collections import defaultdict
-from itertools import islice
 from pathlib import Path
 import sys
 import time
@@ -42,7 +41,7 @@ except ImportError as e:
     print(f"Oops! Forgot to activate an appropriate environment?\n{e}")
     sys.exit(1)
 
-from mcce4.constants import IONIZABLE_RES as IONIZABLES, ROOMT
+from mcce4.constants import IONIZABLE_RES as IONIZABLES, ROOMT, res3_to_res1
 from mcce4.io_utils import MsoutHeaderData, MC_METHODS, N_HDR
 from mcce4.io_utils import reader_gen, show_elapsed_time
 
@@ -67,22 +66,19 @@ def topN_loadtime_estimate(n_freeres: int) -> str:
 
 class ConfInfo:
     """This class handles the loading of head3 data into a numpy array
-    and provides these accessor functions:
-     - get_iconf(confid)
-     - get_confid(iconf)
-     - get_ires(iconf)
-     - is_free_conf(confid)
-     - is_fixed_off(confid)
+    and provides one accessor function is_fixed_off(iconf).
     The 'conf_info' attribute (np.ndarray) is a lookup 'table' for
     these fields: conf_info: [iconf, resid, in_kinds, is_ioniz, is_fixed, is_free, resix, crg]
     """
     def __init__(self, h3_fp: Path, verbose: bool = False):
         self.h3_fp = h3_fp
         self.verbose = verbose
+
         self.conf_info: np.ndarray = None
-        self.n_confs: int = None
-        self.max_ic = None
-        self.max_ir = None
+        self.conf_ids: List = []
+        self.n_confs: int = 0
+        self.cms_resids: List = []
+        self.n_resids: int = 0
         self.background_crg: int = None
 
     def load(self, iconf2ires: Dict, fixed_iconfs: List[int], with_tautomers: bool,
@@ -113,29 +109,31 @@ class ConfInfo:
             in_kinds = 1  # preset to accept all if next condition is False
             if residue_kinds is not None and len(residue_kinds):
                 in_kinds = int(kind in residue_kinds)
-
-            #is_fixed = int(iconf in self.fixed_iconfs)
             # conf_info: [iconf, resid, in_kinds, is_ioniz, is_fixed, is_free, resix, crg]
             #              0      1        2       3         4         5        6     7
             #                                               -4        -3       -2    -1
             conf_info.append([iconf, resid, in_kinds, is_ioniz, -1, 0, -1, crg])
             conf_vec.append([iconf, confid])
+
         # temp list structure is now sized & has h3 info; cast to np.ndarray:
         conf_info = np.array(conf_info, dtype=object)
         self.conf_ids = np.array(conf_vec, dtype=object)
 
+        # is_free field
+        # conf_info: [iconf, resid, in_kinds, is_ioniz, is_fixed, is_free, resix, crg]
+        free_ics = list(iconf2ires.keys())
+        conf_info[free_ics, -3] = 1
+
         # populate the ires of free res, if possible
-        for i, (iconf, *_) in enumerate(conf_info):
+        for i, (iconf, *_) in enumerate(conf_info): 
             conf_info[i][-2] = iconf2ires.get(iconf, -1)
-        
-        # populate the 'is_free' field using valid ires
-        conf_info[np.where(conf_info[:,-2]>=0), -3] = 1
 
         # populate the 'is_fixed' as not free & not fixed 'off'
         conf_info[np.where((conf_info[:,-3]==0) & np.isin(conf_info[:,0], fixed_iconfs)), -4] = 1
         
         # get cms unique resids list via filtering conf_info for valid confs for
         # protonation state vec: is_ioniz & is_free & in user list if given.
+
         # conf_info: [iconf, resid, in_kinds, is_ioniz, is_fixed, is_free, resix, crg]
         sum_conditions = conf_info[:, 3] + conf_info[:, -3]   # ionizable & free
         sum_tot = 2
@@ -147,8 +145,9 @@ class ConfInfo:
         d = defaultdict(int)
         for r in conf_info[np.where(sum_conditions == sum_tot)][:, 1]:
             d[r] += 1
-        # uniq resids to list:
+        # uniq resids from dict keys:
         self.cms_resids = list(d.keys())
+        self.n_resids = len(self.cms_resids)
         # create mapping from confs space to protonation resids space:
         # reset conf_info resix field to the index from cms_resids list or -1:
 
@@ -175,77 +174,27 @@ class ConfInfo:
                "is_fixed:4, is_free:5, resix:6, crg:7\n")
 
         self.n_confs = conf_info.shape[0]
-        self.max_iconf, self.max_ires = np.max(conf_info[:,[0,6]], axis=0)
-        # sumcrg for not is_free:
-        #self.background_crg = conf_info[np.where(conf_info[:,-3]<1), -1].sum()
-        self.background_crg = conf_info[np.where(conf_info[:,5]==0), -1].sum()
-
-        # sumcrg for not is_fixed:
-        #self.background_crg = conf_info[np.where(conf_info[:,4]==1), -1].sum()
+        # sumcrg for not is_free & is_fixed on:
+        # conf_info: [iconf, resid, in_kinds, is_ioniz, is_fixed, is_free, resix, crg]
+        self.background_crg = conf_info[np.where((conf_info[:,-3]==0) 
+                                                  & (conf_info[:,-4]==1)), -1].sum()
         print(f" Background crg: {self.background_crg}",
               f" n_confs: {self.n_confs}", sep="\n")
         self.conf_info = conf_info
 
         return
-    
-    def get_iconf(self, confid: str) -> int:
-        """Get the conf index of a confid;
-        confid:0, crg:1, cx:2, off:3, rx:4, is_free:5
-        """
-        if "BK" in confid:
-            return -1
-        return self.conf_info[np.where(self.conf_info[:,0]==confid)][0,2]
 
-    def get_confid(self, iconf: int) -> str:
-        """Get the confid of a conf index;
-        confid:0, crg:1, cx:2, off:3, rx:4, is_free:5
+    def is_fixed_off(self, iconf: int) -> int:
+        """conf_info: [iconf, resid, in_kinds, is_ioniz, is_fixed, is_free, resix, crg]
         """
         try:
-            val = self.conf_info[np.where(self.conf_info[:,2]==iconf)][0,0]
+            val = self.conf_info[np.where((self.conf_info[:,0]==iconf)
+                                          & (self.conf_info[:,-4]!=1))][0,-4]
+            if val == -1: val = 1
         except IndexError:
-            val = None
+            val = 0
 
         return val
-
-    def get_ires(self, iconf: int) -> int:
-        """Get the res index given a conformer index;
-        confid:0, crg:1, cx:2, off:3, rx:4, is_free:5
-        """
-        try:
-            val = self.conf_info[np.where((self.conf_info[:,-1]==1) 
-                                          & (self.conf_info[:,2]==iconf))][0,-2]
-        except IndexError:
-            val = None
-
-        return val
-
-    def is_free_conf(self, confid: str) -> int:
-        """confid:0, crg:1, cx:2, off:3, rx:4, is_free:5
-        Note: -1 is return for confid of BK
-        """
-        if "BK" in confid:
-            return -1
-        try:
-            val = self.conf_info[np.where(self.conf_info[:,0]==confid)][0,-1]
-        except IndexError:
-            val = None
-
-        return val
-
-    def is_fixed_off(self, confid: str) -> int:
-        """confid:0, crg:1, cx:2, off:3, rx:4, is_free:5
-        Note: -1 is return for confid of BK, so it's not eliminated
-        """
-        if "BK" in confid:
-            return -1
-        try:
-            val = self.conf_info[np.where(self.conf_info[:,0]==confid)][0,3]
-            if val == -1: val = 0
-        except IndexError:
-            val = None
-
-        return val
-
 
 
 # TODO: test res_kinds with mc_load="conf"
@@ -299,12 +248,18 @@ class MSout_np:
                  res_kinds: list = None,
                  with_tautomers: bool = False,
                  #loadtime_estimate: bool = False,
-                 reduced_ms_rows: bool = False
+                 reduced_ms_rows: bool = False,
+                 verbose: bool = False,
                  ):
+        self.verbose = verbose
         self.h3_fp = Path(head3_file)
         self.msout_fp = Path(msout_file)
         self.reduced_ms_rows = reduced_ms_rows
         self.mc_load: str = None
+
+        # populate these attributes:
+        self.with_tautomers: bool = None
+        self.res_kinds: list = None
         self.validate_kwargs(mc_load, res_kinds, with_tautomers)
 
         self.HDR = MsoutHeaderData(self.msout_fp)
@@ -321,20 +276,22 @@ class MSout_np:
         # self.free_iconfs: List[int] = []
         # self.n_free_ics: int = 0
 
-        # attributes populated by self.get_conf_info:
-        self.n_confs: int = None
-        self.n_resids: int = None
-        # conformer lookup table using head3 data:
-        self.conf_info: np.ndarray = None
-        self.conf_ids: np.ndarray = None
-        # list of resids defining a cms:
-        self.cms_resids: list = None
-        # sum crg of fixed res:
-        self.background_crg: int = None
-        # create the head3 lookup array:
-        #self.conf_info, self.cms_resids, self.conf_ids = 
-        self.get_conf_info(self.h3_fp)
-        print(f"Background crg: {self.background_crg}")
+        self.CI = ConfInfo(self.h3_fp, verbose=self.verbose)
+        # CI attributes:
+            # self.conf_ids
+            # self.n_confs
+            # self.cms_resids  # :: list of resids defining a cms
+            # self.n_resids
+            # self.background_crg
+            # self.conf_info
+        # load the self.CI.conf_info lookup array:
+        # fields: iconf:0, resid:1, in_kinds:2, is_ioniz:3, is_fixed:4, is_free:5, resix:6, crg:7
+        self.CI.load(self.HDR.iconf2ires, self.HDR.fixed_iconfs, self.with_tautomers,
+                     residue_kinds=self.res_kinds)
+        # copy from CI.conf_info
+        self.conf_info = self.CI.conf_info
+        self.cms_resids = self.CI.cms_resids
+        self.n_resids = self.CI.n_resids
 
         # attributes populated by the 'load' functions:
         self.N_space: int = None     # size of state space
@@ -405,113 +362,6 @@ class MSout_np:
                 self.res_kinds = res_kinds
 
         return
- 
-    def get_conf_info(self, h3_fp: str) -> Tuple[np.ndarray, list, np.ndarray]:
-        """Output these variables:
-         - conf_info (np.ndarray): a lookup 'table' for iconfs, resids, and charges
-           initially from head3.lst;
-         - cms_resids (list): list of unique, free & ionizable resids in a MCCE simulation;
-         - conf_ids (np.ndarray): array of iconfs, confids;
-
-        Note:
-        Final extended format of conf_info:
-          [iconf, resid, in_kinds, is_ioniz, is_fixed, is_free, resix, crg];
-        Field 'is_fixed' is needed for proper accounting of net charge.
-        """
-        print("\nPopulating the lookup array with head3.lst and msout file header data")
-        with open(h3_fp) as h3:
-            lines = h3.readlines()[1:]
-
-        conf_info = []
-        conf_vec = []
-        for line in lines:
-            # ignored columns: FL, Occ & fields beyond crg
-            iConf, confid, _, _, Crg, *_ = line.split()
-            iconf = int(iConf) - 1  # as python index
-            kind = confid[:3]
-            resid = kind + confid[5:11]
-            crg = int(float(Crg))
-            if self.with_tautomers:
-                if kind == "HIS":
-                    # reset crg to pseudo crg:
-                    # 0 :: HIS01->" NE2"; 1 :: HIS02->" ND1"; 2 :: HIS+1
-                    crg = int(confid[4]) - 1 if confid[3] == "0" else 2
-
-            is_ioniz = int(resid[:3] in IONIZABLES)
-            in_kinds = 1
-            if self.res_kinds is not None and len(self.res_kinds):
-                in_kinds = int(kind in self.res_kinds)
-
-            #  [iconf, resid, in_kinds, is_ioniz, is_fixed, is_free, resix, crg]
-            conf_info.append([iconf, resid, in_kinds, is_ioniz, -1, 0, -1, crg])
-            conf_vec.append([iconf, confid])
-        # temp list structure is now set & has h3 info; cast to np.ndarray:
-        conf_info = np.array(conf_info, dtype=object)
-        conf_ids = np.array(conf_vec, dtype=object)
-
-        # # update conf_info: use free iconfs from free_residues to
-        # # populate the 'is_free' field.
-        # free_iconfs = [ic for free in self.HDR.free_residues for ic in free]
-        # conf_info[free_iconfs, -3] = 1
-        # populate the ires of free res, if possible
-        for i, (iconf, *_) in enumerate(conf_info):
-            conf_info[i][-2] = self.HDR.iconf2ires.get(iconf, -1)
-        
-        # populate the 'is_free' field using valid ires
-        conf_info[np.where(conf_info[:,-2]>=0), -3] = 1
-
-        # populate the 'is_fixed' as not free & not fixed 'off'
-        conf_info[np.where((conf_info[:,-3]==0) & np.isin(conf_info[:,0], self.HDR.fixed_iconfs)), -4] = 1
-
-        # get cms unique resids list via filtering conf_info for valid confs for
-        # protonation state vec: ionizable & free & in user list if given.
-        # conf_info: [iconf, resid, in_kinds, is_ioniz, is_fixed, is_free, resix, crg]
-        sum_conditions = conf_info[:, 3] + conf_info[:, -3]   # ionizable & free
-        sum_tot = 2
-        if self.res_kinds:
-            # in_kinds & is_ioniz & is_free
-            sum_conditions = conf_info[:, 2] + sum_conditions
-            sum_tot = 3
-        # Note: dict in use instead of a set (or np.unique) to preserve the order:
-        cms_d = defaultdict(int)
-        for r in conf_info[np.where(sum_conditions == sum_tot)][:, 1]:
-            cms_d[r] += 1
-        # uniq resids to list:
-        cms_resids = list(cms_d.keys())
-
-        # create mapping from confs space to protonation resids space:
-        # update conf_info resix field with the index from cms_resids list:
-        # conf_info: [iconf, resid, in_kinds, is_ioniz, is_fixed, is_free, resix, crg]
-        # Getting resix w/o checking again for is_free was not sufficient,
-        # e.g. GLUA0007; iconfs 12, 13, 14 needed resix = -1, since not free:
-        # [12 'GLUA0007_' 1 0 0 2 0]
-        # [13 'GLUA0007_' 1 0 0 2 0]
-        # [14 'GLUA0007_' 1 0 0 2 0]
-        # [15 'GLUA0007_' 1 0 1 2 0]
-        # [16 'GLUA0007_' 1 0 1 2 -1]
-        for i, (_, resid, _, _, _, is_free, *_) in enumerate(conf_info):
-            try:
-                resix = cms_resids.index(resid)
-                if not is_free:
-                    resix = -1
-            except ValueError:
-                # put sentinel flag for unmatched res:
-                resix = -1
-            conf_info[i][-2] = resix
-
-        # print("\nHead3 lookup array 'conf_info'\n\tfields ::",
-        #       "iconf:0, resid:1, in_kinds:2, is_ioniz:3,",
-        #       "is_fixed:4, is_free:5, resix:6, crg:7\n")
-        self.conf_info = conf_info
-        self.cms_resids = cms_resids
-        self.conf_ids = conf_ids
-        self.n_confs = len(self.conf_ids)
-        self.n_resids = len(self.cms_resids)
-        # fields :: [iconf, resid, in_kinds, is_ioniz, is_fixed, is_free, resix, crg]
-        # sum_crg for not is free
-        self.background_crg = self.conf_info[np.where(conf_info[:,5]==0), -1].sum()
-
-        return
 
     def get_ter_dict(self) -> dict:
         """Return a dict for res with multiple entries, such as
@@ -520,7 +370,7 @@ class MSout_np:
                               'A0129': ['LEU', 'CTR']}
         """
         ter_dict = defaultdict(list)
-        for confid in self.conf_ids[:,1]:
+        for confid in self.CI.conf_ids[:,1]:
             res = confid[:3]
             res_id = confid[5:].split("_")[0]
             # order needed, can't use set():
@@ -639,7 +489,7 @@ class MSout_np:
                         current_state = [int(i) for i in line.split(":")[1].split()]
 
                         # cms_vec :: [state, totE, averE, occ]
-                        cms_vec.append([[0] * len(self.cms_resids), 0, 0, 0])
+                        cms_vec.append([[0] * self.n_resids, 0, 0, 0])
                         # update cms_vec state:
                         curr_info = self.conf_info[current_state]
 
@@ -658,7 +508,7 @@ class MSout_np:
                     # 41:0 3 16 29 41 52 54 68 70 73 ... # ^N: number of free iconfs in state
                     current_state = [int(i) for i in line.split(":")[1].split()]
                     # cms_vec :: [state, totE, averE, count]
-                    cms_vec.append([[0] * len(self.cms_resids), 0, 0, 0])
+                    cms_vec.append([[0] * self.n_resids, 0, 0, 0])
                     # update cms_vec state:
                     curr_info = self.conf_info[current_state]
 
@@ -705,9 +555,9 @@ class MSout_np:
                     else:  # new crg ms
                         ro += 1
                         if self.HDR.is_monte:
-                            cms_vec.append([[0] * len(self.cms_resids), state_e * count, state_e, count])
+                            cms_vec.append([[0] * self.n_resids, state_e * count, state_e, count])
                         else:
-                            cms_vec.append([[0] * len(self.cms_resids), state_e, np.nan, count])
+                            cms_vec.append([[0] * self.n_resids, state_e, np.nan, count])
                         # update cms_vec state:
                         curr_info = self.conf_info[current_state]
                         upd = curr_info[np.where(curr_info[:, -2] != -1)][:, -2:]  # -> [resix, crg]
@@ -779,7 +629,7 @@ class MSout_np:
                         # initialize the vectors:
                         ms_vec.append([ro, list(current_state), 0, 0])
                         #  cms_vec ::  [idx, state, totE, averE, count]
-                        cms_vec.append([ro, [0] * len(self.cms_resids), 0, 0, 0])
+                        cms_vec.append([ro, [0] * self.n_resids, 0, 0, 0])
 
                         # update cms_vec state:
                         curr_info = self.conf_info[current_state]
@@ -801,7 +651,7 @@ class MSout_np:
                     ms_vec.append([ro, list(current_state), 0, 0])
 
                     # cms_vec ::  [idx, state, totE, averE, count]
-                    cms_vec.append([ro, [0] * len(self.cms_resids), 0, 0, 0])
+                    cms_vec.append([ro, [0] * self.n_resids, 0, 0, 0])
                     # update cms_vec state:
                     curr_info = self.conf_info[current_state]
                     upd = curr_info[np.where(curr_info[:, -2] != -1)][:, -2:]  # -> [resix, crg]
@@ -858,11 +708,11 @@ class MSout_np:
                         # lookup array for the current state
                         if self.HDR.is_monte:
                             cms_vec.append([ro,
-                                            [0] * len(self.cms_resids),
+                                            [0] * self.n_resids,
                                             state_e * count, state_e, count])
                         else:
                             cms_vec.append([ro,
-                                            [0] * len(self.cms_resids),
+                                            [0] * self.n_resids,
                                             state_e, np.nan, count])
                         # update cms_vec state:
                         curr_info = self.conf_info[current_state]
@@ -1167,11 +1017,16 @@ class MSout_np:
     def get_resoi_cms(self, resoi: Union[list, np.ndarray]) -> Union[np.ndarray, None]:
         """Obtain a filtered .all_cms array for residues of interest if any."
         """
+        # changed to filter for all free ionizable residues if no user list
         if not self.cms_resids:
-            return None
-        # get iconfs of res of interest info arr: will be used to filter all_cms
-        resoi_info_idx = np.array(self.conf_info[np.isin(self.conf_info[:,1], resoi)][:,0],
-                                  dtype='int')
+            # conf_info: [iconf, resid, in_kinds, is_ioniz, is_fixed, is_free, resix, crg]
+            resoi_info_idx = np.array(self.conf_info[(self.conf_info[:,-3]==1)
+                                                     & (self.conf_info[:,3]==1)][:,0],
+                                      dtype="int")
+        else:
+            # get iconfs of res of interest into array: will be used to filter all_cms
+            resoi_info_idx = np.array(self.conf_info[np.isin(self.conf_info[:,1], resoi)][:,0],
+                                    dtype="int")
 
         return self.all_cms[resoi_info_idx]
 
@@ -1196,17 +1051,26 @@ class MSout_np:
 
         return filtered
 
-    def how_many_ms_to_ooc_pct(self, occ_pct: list=[50, 90]) -> int:
+    def n_ms_to_ooc_pct(self, occ_pct: list=[50, 90]) -> str:
         """
-        WIP
-        Return how many (c)ms are needed to reach an occ of 50%, 90%, etc.
+        Return a string giving the number of (c)ms needed to reach an occ of 50%, 90%, etc.
+        """
+        if self.HDR.is_monte:
+            p1 = occ_pct[0]/100
+            p2 = occ_pct[1]/100
+            # determine which topn data to return as per mc_load:
+            which_top = {"conf":1, "crg":2, "all":3}
+            process_top = which_top[self.mc_load]
+            if process_top in (2, 3):
+                to_pct1 = self.all_cms[np.less_equal(np.cumsum(self.all_cms[:, -1]/self.N_space), p1)]
+                to_pct2 = self.all_cms[np.less_equal(np.cumsum(self.all_cms[:, -1]/self.N_space), p2)]
+            else:
+                to_pct1 = self.all_ms[np.less_equal(np.cumsum(self.all_ms[:, -1]/self.N_space), p1)]
+                to_pct2 = self.all_ms[np.less_equal(np.cumsum(self.all_ms[:, -1]/self.N_space), p2)]
 
-        print("Checking occ drop.")
-        # determine which topn data to return as per mc_load:
-        which_top = {"conf":1, "crg":2, "all":3}
-        process_top = which_top[self.mc_load]
-        """
-        pass
+        return ("Number of microstates to occpuancy of:\n"
+                f" {p1:.1%}: {to_pct1.shape[0]:,}\n"
+                f" {p2:.1%}: {to_pct2.shape[0]:,}\n")
 
     def get_topN_data(self, N: int=None, min_occ: float = MIN_OCC,
                       all_ms_out: bool = False) -> Tuple[list, Union[dict, None]]:
@@ -1338,10 +1202,10 @@ class MSout_np:
 
             # sci notation for occ, e.g.: 1.23e+06
             if ix_state == 1:
-                fields.extend([round(itm[3], 2), sum(state) + self.background_crg, itm[5],
+                fields.extend([round(itm[3], 2), sum(state) + self.CI.background_crg, itm[5],
                                round(itm[4], 6)])
             else:
-                fields.extend([round(itm[2], 2), sum(state) + self.background_crg, itm[4],
+                fields.extend([round(itm[2], 2), sum(state) + self.CI.background_crg, itm[4],
                                round(itm[3], 6)])
             data.append(fields)
 
@@ -1351,10 +1215,10 @@ class MSout_np:
             if fixed_free_res is not None:
                 # add fixed ionizable res
                 res_cols = res_cols + fixed_free_res[:,0].tolist() 
-                info_dat = ["tmp"] + ["free"] * len(self.cms_resids) + ["fixed"] * n_ffres + ["totals"] * 4
+                info_dat = ["tmp"] + ["free"] * self.n_resids + ["fixed"] * n_ffres + ["totals"] * 4
             else:
                 # order as in data
-                info_dat = ["tmp"] + ["free"] * len(self.cms_resids) + ["totals"] * 4
+                info_dat = ["tmp"] + ["free"] * self.n_resids + ["totals"] * 4
 
             # always remove trailing underscore
             res_cols = [c.rstrip("_") for c in res_cols]
@@ -1500,12 +1364,13 @@ class MSout_np:
             return self._free_res_aver_crg_df_from_all_cms()
 
     def __str__(self):
-        out = (f"Conformers: {self.n_confs:,}\n"
+        out = (f"\nConformers: {self.CI.n_confs:,}\n"
                 f"Free residues: {len(self.HDR.free_residues):,}\n"
                 f"Fixed residues: {len(self.HDR.fixed_iconfs):,}\n"
-                f"Background charge: {self.background_crg:.0f}\n"
+                f"Background charge: {self.CI.background_crg:.0f}\n"
                 )
         if self.HDR.is_monte:
-            out = out +f"State space: {self.N_space:,}\n"
+            out = out + f"State space: {self.N_space:,}\n"
+            out = out + self.n_ms_to_ooc_pct()
 
         return out
