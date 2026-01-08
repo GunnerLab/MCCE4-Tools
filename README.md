@@ -25,25 +25,24 @@
     - Activate an appropriate environment associated with __python 3.10__ (and that includes the packages in the environment file, `MCCE4-Tools/mct4.yml`).
     - Alternatively, you can create one with the provided `MCCE4-Tools/mct4.yml` file:
       * Choose one of these two options to create the environment:
-        1. Option 1: To use the default environment name of 'mct4':
+        1. Option 1: Create a NEW environment named 'mc4' if you do not have one already. To find out, run the command: `conda env list`. You do not have an 'mc4' environment if it's not listed in its output:
         ```
          conda env create -f mct4.yml
         ```
-        2. Option 2: If you want something else, e.g. 'new_env' to be the environment name instead of 'mct4':
+        2. Option 2: Update your existing 'mc4' environment (which you have already created if you have installed MCCE4-Alpha):
         ```
-         conda env create -f mct4.yml -n new_env
+         conda env update -n mc4 -f mct4.yml
         ```
   6. Test a tool
-    * Activate your environment, e.g. `conda activate mct4`
+    * Activate your environment, e.g. `conda activate mc4`
     * Type `getpdb` and press Enter: the cli usage should display
 
   * __NOTES__
-     - Command to update your environment: `conda env update -n mct4 -f mct4.yml` 
      - Although pymol is necessary for certain tools, it is not included in `mct4.yml` due to licensing; installation details for PyMOL 3.1 (Version 3.1.6.1) is [here](https://www.pymol.org/)
 
 <!--- Section commented out:
   7. For developing:
-    * Activate your environment, e.g. `conda activate mct4`
+    * Activate your environment, e.g. `conda activate mc4`
     * Go into the clone directory (`cd MCCE4-Tools`)
     * Install the clone codebase as an editable package in your activated environment:
     ```
