@@ -26,36 +26,34 @@ except ImportError as e:
 from mcce4.cms_analysis_wc import IONIZABLES, MIN_OCC
 
 
-def params_main(ph: str="7", eh: str="0") -> dict:
-    """Obtain cms_analysis main parameters dict with default values for given ph, eh.
-    """
-    params_defaults = {
-        # Most values are strings to match the values in the dicts returned by `load_param_file`.
-        "mcce_dir": ".",
-        "output_dir": f"crgms_corr_ph{ph}eh{eh}",
-        "list_head3_ionizables": "False",
-        "msout_file": f"pH{ph}eH{eh}ms.txt",
-        # Do not output "main_csv": "all_crg_count_res.csv",
-        "fixed_res_of_interest_csv": "fixed_res_of_interest.csv",
-        "all_crg_count_resoi_csv": "all_crg_count_resoi.csv",
-        "all_res_crg_csv": "all_res_crg_status.csv",
-        "res_of_interest_data_csv": "crg_count_res_of_interest.csv",
-        "n_top": "",
-        "min_occ": str(MIN_OCC),
-        "residue_kinds": IONIZABLES,
-        "correl_resids": None,
-        "corr_method": "pearson",
-        "corr_cutoff": "0.02",
-        "n_clusters": "5",
-        "cluster_min_res_count": "6",
-        "fig_show": "False",
-        "energy_histogram.save_name": "enthalpy_dist.png",
-        "energy_histogram.fig_size": "(8,8)",
-        "corr_heatmap.save_name": "corr.png",
-        "corr_heatmap.fig_size": "(20, 8)",
-    }
+# dir name to be completed with given ph/eh:
+DEFAULT_OUTPUT_DIR = "crgms_corr_"
 
-    return params_defaults
+params_defaults = {
+    # Most values are strings to match the values in the dicts returned by `load_param_file`.
+    "mcce_dir": ".",
+    "output_dir": DEFAULT_OUTPUT_DIR,
+    "list_head3_ionizables": "False",
+    "ph":"7",
+    "eh":"0",
+    "fixed_res_of_interest_csv": "fixed_res_of_interest.csv",
+    "all_crg_count_resoi_csv": "all_crg_count_resoi.csv",
+    "all_res_crg_csv": "all_res_crg_status.csv",
+    "res_of_interest_data_csv": "crg_count_res_of_interest.csv",
+    "n_top": "",
+    "min_occ": str(MIN_OCC),
+    "residue_kinds": IONIZABLES,
+    "correl_resids": None,
+    "corr_method": "pearson",
+    "corr_cutoff": "0.02",
+    "n_clusters": "5",
+    "cluster_min_res_count": "6",
+    "fig_show": "False",
+    "energy_histogram.save_name": "enthalpy_dist.png",
+    "energy_histogram.fig_size": "(8,8)",
+    "corr_heatmap.save_name": "corr.png",
+    "corr_heatmap.fig_size": "(16, 8)",
+    }
 
 
 def params_histograms() -> dict:
@@ -194,11 +192,11 @@ def load_crgms_param(filepath: str) -> Tuple[dict, dict]:
     if correl_lines:
         crgms_dict["correl_resids"] = correl_lines
 
-    p, e = crgms_dict.get("msout_file", "pH7eH0ms.txt")[:-4].lower().split("eh")
-    ph = p.removeprefix("ph")
-    eh = e.removesuffix("ms")
-    crgms_dict["ph"] = ph
-    crgms_dict["eh"] = eh
+    # p, e = crgms_dict.get("msout_file", "pH7eH0ms.txt")[:-4].lower().split("eh")
+    # ph = p.removeprefix("ph")
+    # eh = e.removesuffix("ms")
+    # crgms_dict["ph"] = ph
+    # crgms_dict["eh"] = eh
 
     charge_histograms = defaultdict(dict)
     remove_keys = []
@@ -214,24 +212,16 @@ def load_crgms_param(filepath: str) -> Tuple[dict, dict]:
             crgms_dict.pop(k)
 
     # Add missing default params:
-    main_params = params_main(ph=ph, eh=eh)
-    for k in main_params:
-        if crgms_dict.get(k) is None:
-            crgms_dict[k] = main_params[k]
+    for k in params_defaults:
+        val = crgms_dict.get(k)
+        if val is None or val == "":
+            crgms_dict[k] = params_defaults[k]
 
     # Add params for unbounded histogram if none were given:
     if not charge_histograms:
         charge_histograms["charge_histogram0"] = params_histograms()["charge_histogram0"]
 
     return crgms_dict, dict(charge_histograms)
-
-
-# TODO: remove?
-def get_resid2iconf_dict0(conf_info: np.ndarray) -> dict:
-    """Return the mapping of conformer resid to its index.
-    """
-    free_ci = conf_info[np.where(conf_info[:, -3])]
-    return dict((ci[0], ci[1]) for ci in free_ci[:, [1, 0]])
 
 
 def check_res_list(correl_lst: list, res_lst: list, conf_info: np.ndarray) -> list:

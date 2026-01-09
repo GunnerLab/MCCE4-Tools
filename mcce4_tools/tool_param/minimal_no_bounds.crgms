@@ -1,6 +1,9 @@
 # INPUT PARAMETER FILE for Protonation Microstates Analysis with Weighted Correlation
 # Tool: ms_protonation
 # Usage: ms_protonation param.crgms
+# Version: 1.0
+# Consult the 'details' section (lines starting with '@') at the bottom of the 'params.crgms' 
+# file for explanations and format specifications
 #.......................................................................
 # Minimal Input file
 
