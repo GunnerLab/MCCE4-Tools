@@ -1,21 +1,33 @@
 # INPUT PARAMETER FILE for Protonation Microstates Analysis with Weighted Correlation
 # Tool: ms_protonation
 # Usage: ms_protonation param.crgms
+# Version: 1.0
+# Consult the 'details' section (lines starting with '@') at the bottom of the
+# file for explanations and format specifications
 #.......................................................................
 
 list_head3_ionizables = False
 mcce_dir = ./
-msout_file = pH7eH0ms.txt
-output_dir = crgms_corr
-min_occ = 0
+ph = 7
+eh = 0
+
+# default output directory: crgms_corr_pH7eH0
+output_dir = 
+
+min_occ = 0.01
 # n_top with no value or commented out means "return all charge ms"
 n_top =
 
+# residue_kinds with no value or commented out means "all ionizable residues"
 residue_kinds =  [ASP, PL9, LYS, GLU, HIS, TYR, NTR, CTR]
 
-correl_resids = [LYSN0253_, GLUN0226_, GLUN0173_, ASPO0085_, GLUO0087_] 
+# correl_resids with no value or commented out means "do correlation on all free conformers
+# of ionizable residues"
+correl_resids = [LYSN0253_, GLUN0226_, GLUN0173_, ASPO0085_, GLUO0087_]
+
+# CORRELATION, CLUSTERING PARAMETERS
 corr_method = pearson
-corr_cutoff = 0
+corr_cutoff = 0.02
 cluster_min_res_count = 6
 n_clusters = 9
 
@@ -31,7 +43,7 @@ fig_show = False
 energy_histogram.save_name = enthalpy_dist.png
 energy_histogram.fig_size = (8,8)
 corr_heatmap.save_name = corr.png
-corr_heatmap.fig_size = (20,8)
+corr_heatmap.fig_size = (16,8)
 corr_heatmap.title = Correlation
 
 # CHARGE HISTOGRAMS
@@ -53,7 +65,6 @@ corr_heatmap.title = Correlation
 #charge_histogram3.save_name = crgms_logcount_highestE.png
 
 # Example with free bounds:
-
 #charge_histogramB.bounds = (-5, 5)
 #charge_histogramB.title = Protonation MS Counts - Energy in (-5, 5) kcal/mol range
 #charge_histogramB.save_name = crgms_logcount_Erange.png
@@ -71,9 +82,9 @@ corr_heatmap.title = Correlation
 @   All non-blank, non-commented lines will be parsed for data with this format: <identifier> = <value(s)>.
 @   Spaces around the equal sign are not required.
 @   Quotes around strings values, or items in a list or tuple are not required.
-
+@
 @ Comments: Not on a data line.
-
+@
 @ Data entry format:
 @   * Values as lists: residue_kinds and correl_resids.
 @     Examples:
@@ -89,7 +100,7 @@ corr_heatmap.title = Correlation
 @        'LYSA0033_'
 @        'GLUA0035_',
 @        ]
-
+@
 @   * Values as 2-tuple, e.g.: .fig_size, .bounds: 
 @     Comma separated values within parentheses: (20, 8), (20,8).
 @   * All identifiers for plots can have attributes given with an appended '.<attribute>' string:
@@ -103,32 +114,31 @@ corr_heatmap.title = Correlation
 @ Valid values: false, true, False, True.
 @
 @ list_head3_ionizables = False
- 
+@ 
 @ RUN & OUTPUT FOLDERS - MICROSTATES FILE SELECTION
 @ ========================================================================================
 @ mcce_dir :: The directory of a MCCE run containing a ms_out subfolder
 @          :: Default: current directory.
 @
 @ mcce_dir = ./
-
-@ The 'msout file' that resides in mcce_dir/ms_out is named using the ph and eh points of
-@ the titration, e.g.: pH7eH0ms.txt, pH7.00eH0.00ms.txt, pH4.50eH30.00ms.txt, etc.
 @
-@ msout_file = pH7eH0ms.txt
-
+@ ph = 7   :: pH titration point; could be 7.50
+@ eh = 0   :: Eh titation point; could be 300
+@
 @ output_dir :: The mcce_dir subdirectory for saving the analysis files
-@            :: Default: crgms_corr_ph{p}eh{e} with p and e being the ph and eh values in the msout file name.
+@            :: Default: crgms_corr_pH{p}Eh{e} with p and e being the provided
+@            :: ph and eh values (default 7, 0)
 @
-@ output_dir = crgms_corr
-
-@ occupancy threshold used for returning unique charge ms; Default = 0.02
+@ output_dir = crgms_corr_
 @
-@ min_occ = 0
-
+@ occupancy threshold used for returning unique charge ms; Default = 0.01
+@
+@ min_occ = 0.01
+@
 @ n_top: number of unique charge ms to return; Default: "" (all)
 @
 @ n_top =
-
+@
 @ RESIDUES SELECTION
 @ ========================================================================================
 @ Notes:
@@ -141,57 +151,57 @@ corr_heatmap.title = Correlation
 @          all ionizable residues are used for filtering.
 @
 @ residue_kinds =  [ASP, PL9, LYS, GLU, HIS, TYR, NTR, CTR]
-
+@
 @ correl_resids :: list of conformer ids (among residue_kinds) to test for correlation.
 @  Format: 3-letter resid + chain letter + 4 digit seqnum + _
 @
 @ correl_resids = [LYSN0253_, GLUN0226_, GLUN0173_, ASPO0085_, GLUO0087_]  
-
+@
 @ CORRELATION PARAMETERS
 @ ========================================================================================
 @ corr_method: either pearson (default) or spearman:
 @ corr_method = pearson
-@ corr_cutoff = 0
-
+@ corr_cutoff = 0.02
+@
 @ Minimum number of residues needed to apply clustering; Default is 6:
 @ cluster_min_res_count = 6
-
+@
 @ Change the number of clusters to pass to `cluster_corr_matrix` from default 5:
 @ n_clusters = 9
-
+@
 @ INPUT/OUTPUT PATHS SELECTION
 @ ======================================================================================== 
 @ CSV output file names:
-
+@
 @ free and fixed residues charges :: Default: all_res_crg_status.csv
 @ all_res_crg_csv = all_res_crg_status.csv
-
+@
 @ residue of interest data :: Default: fixed_res_of_interest.csv
 @ fixed_res_of_interest_csv = fixed_res_of_interest.csv
-
+@
 @ residue of interest with count? :: Default: crg_count_res_of_interest.csv
 @ res_of_interest_data_csv = crg_count_res_of_interest.csv
-
+@
 @ residue count & crg including residues for correlation :: Default: all_crg_count_resoi.csv
 @ all_crg_count_resoi_csv = all_crg_count_resoi.csv
-
+@
 @ FIGURES PARAMETERS & ATTRIBUTES
 @ ========================================================================================
 @ Global flag to indicate whether to show each plot:
 @ fig_show = False
-
+@
 @ Filenames:
 @ energy_histogram.save_name = enthalpy_dist.png
 @ corr_heatmap.save_name = corr.png
-
+@
 @ Titles:
 @ Add a title attribute to the correlation heatmap if needed (default is no title):
 @ corr_heatmap.title = Correlation
-
+@
 @ Figure sizes
 @ energy_histogram.fig_size = (8,8)
 @ corr_heatmap.fig_size = (20,8)
-
+@
 @ Charge microstates histograms:
 @   Multiple histograms can be created using the 'charge_histogram' identifier,
 @   The identifier MUST start with 'charge_histogram' and can end with integers or characters
@@ -199,24 +209,24 @@ corr_heatmap.title = Correlation
 @
 @   Keywords: Emin, Eaver & Emax will be replaced with the corresponding protonation ms energies
 @   Examples for plots with bounds vz Emin, Eaver & Emax:
-
+@
 @ charge_histogram0: Always included, creates all_crg_count_res: no filtering, value = (None, None):
 @ charge_histogram0.bounds = (None, None)
 @ charge_histogram0.title = Protonation MS Counts
 @ charge_histogram0.save_name = crgms_logcount.png
-
+@
 @ charge_histogram1.bounds = (Emin, Emin + 1.36) 
 @ charge_histogram1.title = Protonation MS Counts - Energy within 1.36 kcal/mol of Lowest
 @ charge_histogram1.save_name = crgms_logcount_lowestE.png
-
+@
 @ charge_histogram2.bounds = (Eaver - 0.68, Eaver + 0.68)
 @ charge_histogram2.title = Protonation MS Count - Energy within 0.5 pH (0.68 kcal/mol) of Average
 @ charge_histogram2.save_name = crgms_logcount_averE.png
-
+@
 @ charge_histogram3.bounds = (Emax - 1.36, Emax)
 @ charge_histogram3.title = Protonation MS Count - Energy within 1.36 kcal/mol of Highest
 @ charge_histogram3.save_name = crgms_logcount_highestE.png
-
+@
 @ Example with free bounds:
 @ charge_histogramB.bounds = (-5, 5)
 @ charge_histogramB.title = Protonation MS Counts - Energy in (-5, 5) kcal/mol range

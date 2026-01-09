@@ -287,7 +287,6 @@ def cluster_corr_matrix(corr_df: pd.DataFrame, n_clusters: int = 5) -> pd.DataFr
 
     if n_clusters < 3:
         n_clusters = 3
-
     clusters = fcluster(linkage_matrix, n_clusters, criterion="maxclust")
 
     # Get the order of columns based on clustering
@@ -311,7 +310,6 @@ class CMSWC_Pipeline:
         """
         self.main_prms = main_params
         self.histo_prms = histo_params
-        self.main_defaults: Dict = None
 
         self.mcce_dir: Path = None
         self.output_dir: Path = None
@@ -322,7 +320,6 @@ class CMSWC_Pipeline:
 
         self.residue_kinds: List = None
         self.correl_resids: List = None
-        self.correl_all: bool = False
         self.show_fig: bool = False
         
         self.mc: MSout_np = None
@@ -330,7 +327,7 @@ class CMSWC_Pipeline:
         self.top_df: pd.DataFrame = None
         self.fixed_resoi_crg_df: pd.DataFrame = None
 
-        logger.info("Initializing CMSWC_Pipeline...")
+        # logger.info("Initializing CMSWC_Pipeline...")
         self._setup_paths_and_params()
 
         return
@@ -343,39 +340,23 @@ class CMSWC_Pipeline:
             logger.error("mcce_dir not found.")
             sys.exit(1)
         
-        # Extract pH and Eh from msout_file parameter
-        msout_filename = self.main_prms.get("msout_file")
-        if msout_filename is None:
-            msout_filename = "pH7eH0ms.txt"
-            logger.info("Using default msout file: %s", msout_filename)
-
-        try:
-            p, e = msout_filename[:-4].lower().split("eh")
-            self.ph = p.removeprefix("ph")
-            self.eh = e.removesuffix("ms")
-        except ValueError:
-            logger.error(f"Could not parse pH/Eh from msout_file name: {msout_filename}")
-            sys.exit(1)
-        self.main_defaults = prm.params_main(ph=self.ph, eh=self.eh)
-
-        # Setup output directory
-        self.output_dir = self.mcce_dir.joinpath(self.main_prms.get("output_dir",
-                                                 self.main_defaults["output_dir"])
-        )
-        if not self.output_dir.exists():
-            self.output_dir.mkdir()
-        logger.info(f"Using output directory: {self.output_dir}")
+        self.ph = self.main_prms.get("ph")
+        self.eh = self.main_prms.get("eh")
 
         # Get MCCE input files (step2_out not used here)
         self.h3_fp, _, self.msout_fp = get_mcce_filepaths(self.mcce_dir, self.ph, self.eh)
-        logger.info(f"Using head3.lst: {self.h3_fp}\nUsing msout file: {self.msout_fp}")
-
+        out_dir = self.main_prms.get("output_dir")
+        if out_dir == prm.DEFAULT_OUTPUT_DIR:
+            out_dir += self.msout_fp.stem[:-2]
+        self.output_dir = self.mcce_dir.joinpath(out_dir)
+        if not self.output_dir.exists():
+            self.output_dir.mkdir()
+      
         # Process residue kinds
         self.residue_kinds = self.main_prms.get("residue_kinds", IONIZABLES)
         if (set(self.residue_kinds).symmetric_difference(IONIZABLES)
             and len(self.residue_kinds) > 1):
             self.residue_kinds = prm.sort_resoi_list(self.residue_kinds)
-        logger.info(f"Residue kinds for analysis: {self.residue_kinds}")
 
         self.correl_resids = self.main_prms.get("correl_resids")
         self.show_fig = eval(self.main_prms.get("fig_show", "False"))
@@ -385,16 +366,14 @@ class CMSWC_Pipeline:
     def load_data(self):
         """Loads data using MSout_np.
         """
-        logger.info("Loading microstate data...")
+        logger.info("Loading microstates data...")
         # Instantiate the 'fast loader' class; with_tautomers=False (default)
         self.mc = MSout_np(self.h3_fp, self.msout_fp, mc_load="crg",
                            res_kinds=self.residue_kinds)
-        logger.info(self.mc)
         self.mc.get_uniq_ms()
 
         # Validate correlation residues after loading data
         if self.correl_resids:
-            logger.info("Validating correlation residues...")
             self.correl_resids = prm.check_res_list(
                 self.correl_resids,
                 res_lst = self.residue_kinds,
@@ -409,9 +388,8 @@ class CMSWC_Pipeline:
             else:
                  logger.info(f"Residues for correlation: {self.correl_resids}")
         else:
-            # TODO : implement
             logger.info("No specific residues provided for correlation analysis => do correlation on all.")
-            self.correl_all = True
+            self.correl_resids = []
 
         return
 
@@ -427,30 +405,14 @@ class CMSWC_Pipeline:
         # Combine free aver crg & fixed res with crg and save to csv:
         all_res_crg_df = combine_all_free_fixed_residues(free_res_aver_crg_df, all_fixed_res_crg_df)
         if all_res_crg_df is not None:
-            csv_fp = self.output_dir.joinpath(
-                self.main_prms.get("all_res_crg_csv",
-                                self.main_defaults["all_res_crg_csv"])
-            )
-            msg = (
-                f"Saving combined residue charge status to {csv_fp!s}.\n"
-                "\tNote: For residues with 'free' status, the charge is the average charge."
-            )
-            logger.info(msg)
+            csv_fp = self.output_dir.joinpath(self.main_prms.get("all_res_crg_csv"))
             all_res_crg_df.to_csv(csv_fp)
 
         # Fixed res of interest info:
         self.fixed_resoi_crg_df = self.mc.get_fixed_res_of_interest_df()
         n_fixed_resoi = self.fixed_resoi_crg_df.shape[0]
         if n_fixed_resoi:
-            csv_fp = self.output_dir.joinpath(
-                self.main_prms.get("fixed_res_of_interest_csv",
-                                   self.main_defaults["fixed_res_of_interest_csv"])
-            )
-            msg = (
-                f"Fixed residues in 'residue_kinds': {n_fixed_resoi}\n"
-                f"\tSaving fixed_resoi_crg_df to {csv_fp!s}."
-            )
-            logger.info(msg)
+            csv_fp = self.output_dir.joinpath(self.main_prms.get("fixed_res_of_interest_csv"))
             self.fixed_resoi_crg_df.to_csv(csv_fp, index=False)
         else:
             self.fixed_resoi_crg_df = None # Ensure it's None if empty
@@ -463,17 +425,16 @@ class CMSWC_Pipeline:
         """
         logger.info("\nAnalyzing top microstates...")
         # default is ""
-        n_top_str = self.main_prms.get("n_top", self.main_defaults["n_top"])
+        n_top_str = self.main_prms.get("n_top")
         if n_top_str == "":
             n_top = MAX_INT
         else:
             n_top = int(n_top_str)
 
-        min_occ = float(self.main_prms.get("min_occ", self.main_defaults["min_occ"]))
-
+        min_occ = float(self.main_prms.get("min_occ"))
         self.top_cms, _ = self.mc.get_topN_data(N=n_top, min_occ=min_occ)
         if not self.top_cms:
-             logger.warning(f"No microstates found with occupancy >= {min_occ:.2%}. Correlation analysis will be skipped.")
+             logger.warning(f"No microstates found with occupancy >= {min_occ:.2%}.")
              self.top_df = None # Ensure top_df is None if no states
              return
 
@@ -485,30 +446,23 @@ class CMSWC_Pipeline:
             all_res_crg_df = add_fixed_resoi_crg_to_topdf(self.top_df,
                                                           self.fixed_resoi_crg_df,
                                                           cms_wc_format=True)
-            all_res_crg_df.to_csv(self.output_dir.joinpath(self.main_prms.get("all_crg_count_resoi_csv",
-                                                           self.main_defaults["all_crg_count_resoi_csv"])))
-            logger.info("Saved ranked cms data including fixed residues of interest to all_crg_count_resoi_csv")
+            all_res_crg_df.to_csv(self.output_dir.joinpath(
+                self.main_prms.get("all_crg_count_resoi_csv")))
 
         return
 
     def perform_correlation(self):
         """Performs weighted correlation analysis and generates heatmap.
         """
-        # if self.correl_resids is None or self.top_df is None:
-        #     logger.info("Skipping correlation analysis (no residues specified or no top states found).")
-        #     return
         if self.top_df is None:
-            logger.info("Skipping correlation analysis (no top states found).")
             return
-        logger.info("\nPerforming weighted correlation analysis...")
+
         # Select data for chosen residues
         choose_res_data_df = choose_res_data(self.top_df, self.correl_resids)
 
         # Save the selected data
-        csv_path = self.output_dir.joinpath(self.main_prms.get("res_of_interest_data_csv",
-                                            self.main_defaults["res_of_interest_data_csv"]))
+        csv_path = self.output_dir.joinpath(self.main_prms.get("res_of_interest_data_csv"))
         choose_res_data_df.to_csv(csv_path)
-        logger.info(f"Saved data for correlation to {csv_path}")
 
         # Relabel residues for better plot labels
         df_chosen_res_renamed = rename_reorder_df_cols(choose_res_data_df)
@@ -517,8 +471,8 @@ class CMSWC_Pipeline:
             return
 
         # Perform weighted correlation
-        corr_method = self.main_prms.get("corr_method", self.main_defaults["corr_method"])
-        corr_cutoff = float(self.main_prms.get("corr_cutoff", self.main_defaults["corr_cutoff"])) # Use 0.02 as default cutoff
+        corr_method = self.main_prms.get("corr_method")
+        corr_cutoff = float(self.main_prms.get("corr_cutoff"))
 
         logger.info(f"Calculating weighted correlation (method={corr_method}, cutoff={corr_cutoff})...")
         df_correlation = WeightedCorr(df=df_chosen_res_renamed, wcol="Count", cutoff=corr_cutoff)(
@@ -529,17 +483,14 @@ class CMSWC_Pipeline:
             return
 
         # Maybe generate heatmap
-        savename = self.main_prms.get("corr_heatmap.save_name",
-                                      self.main_defaults["corr_heatmap.save_name"])
-        figsize = eval(self.main_prms.get("corr_heatmap.fig_size",
-                                          self.main_defaults["corr_heatmap.fig_size"]))
+        savename = self.main_prms.get("corr_heatmap.save_name")
+        figsize = eval(self.main_prms.get("corr_heatmap.fig_size"))
 
         if df_correlation.shape[0] >= 2: # Need at least 2 residues for heatmap & clustering
-            n_res_needed = int(self.main_prms.get("cluster_min_res_count",
-                                                  self.main_defaults["cluster_min_res_count"]))
+            n_res_needed = int(self.main_prms.get("cluster_min_res_count"))
            
             if df_correlation.shape[0] >= n_res_needed:
-                n_clusters = int(self.main_prms.get("n_clusters", self.main_defaults["n_clusters"]))
+                n_clusters = int(self.main_prms.get("n_clusters"))
                 logger.info(f"Clustering the correlation matrix (max {n_clusters} clusters).")
                 try:
                     clustered_corr = cluster_corr_matrix(df_correlation, n_clusters=n_clusters)
@@ -568,14 +519,9 @@ class CMSWC_Pipeline:
     def generate_energy_plots(self):
         """Generates energy distribution and histogram plots.
         """
-        logger.info("\nGenerating energy distribution plots...")
         # Energies distribution plot:
-        save_name = self.output_dir.joinpath(
-            self.main_prms.get("energy_histogram.save_name",
-                               self.main_defaults["energy_histogram.save_name"])
-        )
-        fig_size = eval(self.main_prms.get("energy_histogram.fig_size",
-                                           self.main_defaults["energy_histogram.fig_size"]))
+        save_name = self.output_dir.joinpath(self.main_prms.get("energy_histogram.save_name"))
+        fig_size = eval(self.main_prms.get("energy_histogram.fig_size"))
         energy_distribution(self.mc.all_cms, self.output_dir, kind="cms",
                             save_name=save_name, 
                             show=self.show_fig, fig_size=fig_size)
@@ -623,18 +569,15 @@ class CMSWC_Pipeline:
             logger.info(f"Filtering charge microstates data for energy bounds: {bounds_str} -> {ebounds}")
             filtered_cms = self.mc.filter_cms_E_within_bounds(self.mc.all_cms, ebounds)
             if filtered_cms is not None and len(filtered_cms) > 0:
-                logger.info(f"Plotting histogram for {len(filtered_cms)} states: {title}")
                 crgms_energy_histogram(
                     filtered_cms, self.mc.CI.background_crg, title, self.output_dir,
                     save_name=save_name, show=self.show_fig
                 )
             else:
                 logger.warning(f"No charge microstates found within bounds {ebounds} for '{title}'. Skipping histogram.")
-            
-        # Per Issue #10: plot crgms_logcount for residues in self.correl_resids
+
         resoi_cms = self.mc.get_resoi_cms(self.correl_resids)
         if resoi_cms is not None and len(resoi_cms):
-            logger.info(f"Plotting histogram for residues of interest")
             title = "Protonation MS Counts for Residues of Interest"
             save_name = "crgms_logcount_resoi.png"
             crgms_energy_histogram(resoi_cms, self.mc.CI.background_crg, title,
@@ -643,15 +586,30 @@ class CMSWC_Pipeline:
 
         return
 
+    def summary(self):
+        mc_info = f"\n  Unique protonation microstates: {self.mc.N_cms_uniq:,}"
+        if self.top_df is not None:
+            occ = float(self.main_prms.get("min_occ"))
+            mc_info += f"\n  Top protonation microstates (occ >= {occ:.2%}): {self.top_df.shape[0]:,}"
+        mc_info += "\n".join(f"  {line}" for line in self.mc.__str__().splitlines())
+        return f"""
+Summary:
+ Output directory: {self.output_dir}
+ Residue kinds for analysis: {self.residue_kinds}
+ Residues for correlation: {self.correl_resids}
+ Microstate file: {self.msout_fp}
+ Microstates info:{mc_info}
+"""
+
     def run(self):
         """Executes the full analysis pipeline.
         """
-        logger.info("Starting analysis pipeline...")
+        logger.info("Starting charge microstates analysis pipeline...")
         self.load_data()
         self.process_residue_charges()
         self.generate_energy_plots()
         self.analyze_top_states()
         self.perform_correlation()
-        logger.info("CMS Analysis pipeline end.")
+        print(self.summary())
 
         return

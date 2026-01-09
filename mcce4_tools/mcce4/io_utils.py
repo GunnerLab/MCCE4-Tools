@@ -137,7 +137,8 @@ class MsoutHeaderData:
 
 
 def get_msout_size_info(msout_fp: Path,
-                        n_target_states: int = N_STATES) -> Tuple[int, int, int]:
+                        n_target_states: int = N_STATES,
+                        verbose: bool = False) -> Tuple[int, int, int]:
     """Return n_lines, n_skip_lines, n_mc_runs
     """
     mso = str(msout_fp)
@@ -152,8 +153,9 @@ def get_msout_size_info(msout_fp: Path,
     # lines count is approximate
     n_lines = int(out[-1].split()[0]) - N_HDR - 4  # - 2 if method not monte
     n_skip_lines = int(np.floor(n_lines / n_target_states))
-    print(f"Microstates to be saved every {n_skip_lines:,} lines",
-          f"({n_lines=:,} / {n_target_states=:,})")
+    if verbose:
+        print(f"Microstates to be saved every {n_skip_lines:,} lines",
+            f"({n_lines=:,} / {n_target_states=:,})")
     if n_mc_runs > 1:
         print(f"The msout file {msout_fp!s} has {n_mc_runs} MC runs")
 

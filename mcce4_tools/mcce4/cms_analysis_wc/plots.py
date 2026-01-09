@@ -5,14 +5,14 @@ Module: plots.py
 
   Plots for Protonation microstate analysis with weighted correlation.
 """
-import logging
 from pathlib import Path
 import sys
 from typing import Tuple
 import warnings
 warnings.simplefilter("error", UserWarning)
 
-logger = logging.getLogger(__name__)
+import os
+os.environ['QT_QPA_PLATFORM'] = 'xcb'
 try:
     import matplotlib as mpl
     from matplotlib.colors import ListedColormap, BoundaryNorm
@@ -22,7 +22,7 @@ try:
     import seaborn as sns
     from scipy.stats import skewnorm
 except ImportError as e:
-    logger.critical("Oops! Forgot to activate an appropriate environment?\n", exc_info=e)
+    print("Oops! Forgot to activate an appropriate environment?\n", e)
     sys.exit(1)
 
 
@@ -85,7 +85,6 @@ def energy_distribution(
     plt.legend()
     fig_fp = out_dir.joinpath(save_name)
     fig.savefig(fig_fp, dpi=300, bbox_inches="tight")
-    print(f"Microstate energy distribution figure saved: {fig_fp!s}")
 
     if show:
         plt.show()
@@ -157,7 +156,6 @@ def crgms_energy_histogram(
         g1.figure.suptitle(fig_title, fontsize=fs)
     fig_fp = out_dir.joinpath(save_name)
     g1.savefig(fig_fp, dpi=300, bbox_inches="tight")
-    print(f"Figure saved: {fig_fp}")
 
     if show:
         plt.show()
@@ -217,7 +215,6 @@ def corr_heatmap(
         msk = None
 
     fig = plt.figure(figsize=fig_size)
-
     fs = 12  # font size
     ax = sns.heatmap(
         df_corr,
@@ -245,7 +242,6 @@ def corr_heatmap(
             fig_fp = Path(save_name)
 
         fig.savefig(fig_fp, dpi=300, bbox_inches="tight")
-        logger.info(f"Correlation heat map saved as {fig_fp}")
 
     if show:
         plt.show()

@@ -7,6 +7,7 @@ Module: cli.py
 
 """
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
+from itertools import islice
 import logging
 from pathlib import Path
 from pprint import pprint
@@ -23,6 +24,7 @@ logger = logging.getLogger(__name__)
 
 
 DEF_PARAMS = "default_params.crgms"
+PARAMS_VERSION = "Version: 1.0"
 
 
 def list_head3_ionizables(h3_fp: Path) -> list:
@@ -75,6 +77,31 @@ Notes:
 
     return p
 
+def params_file_is_current(params: Path) -> int:
+    """
+    Check the version of the parameters file.
+
+    :param params: file path to the parameters file
+    :type params: Path
+
+    Returns: Either 1 (True) or 0 (False).
+    """
+    with open(params) as fh:
+        version = list(islice(fh, 3, 4))[0].strip()
+    if version != "# " + PARAMS_VERSION:
+        msg = """
+    Your parameter file is outdated. To obtain the current version, 
+    copied as ('new_params.crgms'), run the following command:
+    ```
+    CLONE=$(dirname $(dirname "$(readlink -f "$(which ms_protonation)")"));
+    cp $CLONE/mcce4_tools/tool_param/params.crgms ./new_params.crgms
+    ```
+    Amend the file, then resubmit ms_protonation with it.
+    """
+        logger.error(msg)
+        return 0
+    return 1
+
 
 def crgmswc_cli(argv=None):
 
@@ -82,9 +109,10 @@ def crgmswc_cli(argv=None):
     args = parser.parse_args(argv)
 
     params = Path.cwd().joinpath(args.params_file)
-    logger.info(f"params_file: {params!s}")
     if not params.exists():
         sys.exit("Parameters file not found.")
+    if not params_file_is_current(params):
+        sys.exit(1)
 
     # load the parameters from the input file into 2 dicts:
     main_d, crg_histo_d = prm.load_crgms_param(params)
@@ -95,10 +123,6 @@ def crgmswc_cli(argv=None):
         if list_ionizables.capitalize() == "True":
             logger.info("List of ionizable residues in head3.lst:")
             list_head3_ionizables(main_d.get("mcce_dir", ".") + "/head3.lst")
-
-            dest_fp = Path.cwd().joinpath(DEF_PARAMS)
-            if not dest_fp.exists():
-                copyfile(Path(__file__).parent.joinpath(DEF_PARAMS), dest_fp)
             sys.exit()
 
     # Instantiate and run the pipeline
