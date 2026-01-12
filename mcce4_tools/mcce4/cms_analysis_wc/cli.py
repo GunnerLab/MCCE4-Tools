@@ -91,9 +91,9 @@ def params_file_is_current(params: Path) -> int:
     if version != "# " + PARAMS_VERSION:
         msg = """
     Your parameter file is outdated. To obtain the current version, 
-    copied as ('new_params.crgms'), run the following command:
+    copied as ('new_params.crgms'), run the following commands:
     ```
-    CLONE=$(dirname $(dirname "$(readlink -f "$(which ms_protonation)")"));
+    CLONE=$(dirname $(dirname "$(python3 -c "import os, sys; print(os.path.realpath(sys.argv[1]))" "$(which ms_protonation)")"))
     cp $CLONE/mcce4_tools/tool_param/params.crgms ./new_params.crgms
     ```
     Amend the file, then resubmit ms_protonation with it.

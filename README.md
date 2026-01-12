@@ -22,23 +22,23 @@
   ```
 
   5. To _run_ the tools, either:
-    - Activate an appropriate environment associated with __python 3.10__ (and that includes the packages in the environment file, `MCCE4-Tools/mct4.yml`).
-    - Alternatively, you can create one with the provided `MCCE4-Tools/mct4.yml` file:
+    - Activate an appropriate environment associated with __python 3.10__ (and that includes the packages in the environment file, `MCCE4-Tools/mc4.yml`).
+    - Alternatively, you can create one with the provided `MCCE4-Tools/mc4.yml` file:
       * Choose one of these two options to create the environment:
         1. Option 1: Create a NEW environment named 'mc4' if you do not have one already. To find out, run the command: `conda env list`. You do not have an 'mc4' environment if it's not listed in its output:
         ```bash
-         conda env create -f mct4.yml
+         conda env create -f mc4.yml
         ```
         2. Option 2: Update your existing 'mc4' environment (which you have already created if you have installed MCCE4-Alpha):
         ```bash
-         conda env update -n mc4 -f mct4.yml
+         conda env update -n mc4 -f mc4.yml
         ```
   6. Test a tool
     * Activate your environment, e.g. `conda activate mc4`
     * Type `getpdb` and press Enter: the cli usage should display
 
   * __NOTES__
-     - Although pymol is necessary for certain tools, it is not included in `mct4.yml` due to licensing; installation details for PyMOL 3.1 (Version 3.1.6.1) is [here](https://www.pymol.org/)
+     - Although pymol is necessary for certain tools, it is not included in `mc4.yml` due to licensing; installation details for PyMOL 3.1 (Version 3.1.6.1) is [here](https://www.pymol.org/)
 
   7. Setup to access the codebase programmatically:
     * Activate your environment, e.g. `conda activate mc4`
@@ -63,8 +63,7 @@ As this is repo is frequently updated, your installation must be kept up to date
 Please, run the following commands __before__ using any of its command line tools or accessing its codebase programmatically:
 ```bash
 here=$(pwd);
-clone=$(dirname $(dirname "$(python3 -c "import os, sys; print(os.path.realpath(sys.argv[1]))" "$(which ms_protonation)")"));
-cd "$clone";
+clone=$(dirname $(dirname "$(python3 -c "import os, sys; print(os.path.realpath(sys.argv[1]))" "$(which ms_protonation)")")); cd "$clone";
 git pull;
 cd "$here";
 ```
