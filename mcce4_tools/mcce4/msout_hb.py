@@ -168,30 +168,29 @@ class ConfInfo:
         """
         if "BK" in confid:  # not in conf_info
             return -1
-        return self.conf_info[np.where(self.conf_info[:,0]==confid)][0,2]
+        try:
+            return self.conf_info[np.where(self.conf_info[:,0]==confid)][0,2]
+        except IndexError:
+            return -1
 
     def get_confid(self, iconf: int) -> str:
         """Get the confid of a conf index;
         confid:0, crg:1, cx:2, is_fixed:3, rx:4, is_free:5
         """
         try:
-            val = self.conf_info[np.where(self.conf_info[:,2]==iconf)][0,0]
+            return self.conf_info[np.where(self.conf_info[:,2]==iconf)][0,0]
         except IndexError:
-            val = "?"
-
-        return val
+            return "?"
 
     def get_ires(self, iconf: int) -> int:
         """Get the res index given a conformer index;
         confid:0, crg:1, cx:2, is_fixed:3, rx:4, is_free:5
         """
         try:
-            val = self.conf_info[np.where((self.conf_info[:,-1]==1) 
+            return self.conf_info[np.where((self.conf_info[:,-1]==1) 
                                           & (self.conf_info[:,2]==iconf))][0,-2]
         except IndexError:
-            val = -1
-
-        return val
+            return -1
 
     def is_free_conf(self, confid: str) -> int:
         """confid:0, crg:1, cx:2, off:3, rx:4, is_free:5
@@ -200,11 +199,9 @@ class ConfInfo:
         if "BK" in confid:
             return -1
         try:
-            val = self.conf_info[np.where(self.conf_info[:,0]==confid)][0,-1]
+            return self.conf_info[np.where(self.conf_info[:,0]==confid)][0,-1]
         except IndexError:
-            val = -1
-
-        return val
+            return -1
 
     def is_fixed_off(self, confid: str) -> int:
         """confid:0, crg:1, cx:2, is_fixed:3, rx:4, is_free:5
@@ -287,7 +284,7 @@ class MSout_hb:
         start_t = time.time()
         self.df = self.expand_hah_data()
         show_elapsed_time(start_t, info="Expanding the hah file into a dataframe")
-        
+
         print("Creating the hb pairs indicator matrix, I...")
         self.I = self.get_hah_matrix()
         if self.I is None:
