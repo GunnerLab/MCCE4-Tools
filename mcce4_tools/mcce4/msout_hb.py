@@ -11,6 +11,8 @@ from argparse import ArgumentParser, RawDescriptionHelpFormatter
 from collections import defaultdict
 from pathlib import Path
 from pprint import pformat
+import cProfile
+import pstats
 import sys
 import time
 from typing import Dict, List, Tuple, Union
@@ -303,8 +305,14 @@ class MSout_hb:
         self.hb_states: dict = None
 
         print("Loading the H-bond data from microstates...")
+        # profiler = cProfile.Profile()
         start_t = time.time()
+        # profiler.enable()
         self.load_ms_hb()
+        # profiler.disable()
+        # stats = pstats.Stats(profiler)
+        # stats.sort_stats(pstats.SortKey.CUMULATIVE) # Sort by cumulative time
+        # stats.print_stats(10)
         show_elapsed_time(start_t, info="Loading msout for H-bond data")
 
         print("Converting Mij to confid, updating the expanded file with pairs data, if any",
@@ -336,6 +344,8 @@ class MSout_hb:
         """Reduce the inital hah.txt file by removing entries that have:
           - H-bonding pairs with fixed conformers that are always OFF
           - H-bonding pairs between 2 BK conformers
+          TODO:
+          - 0 occupancy in fort.38
         The the reduced file is save as hah_{pheh}.txt, as it is ph dependent and
         used in extend_hah_data function.
         """
@@ -734,7 +744,7 @@ class MSout_hb:
             if self.n_bk:
                 extended.extend([self.mat_iconfs.index(ic) for ic in self.dm_iconfs])
 
-        Ix, Iy = self.I.nonzero()
+        # Ix, Iy = self.I.nonzero()
         # pairs & states matrices cannot be sparse
         S = self.I.todense()
         P = self.I.todense() * 0
@@ -768,7 +778,6 @@ class MSout_hb:
                         continue
 
                     mc_lines += 1
-                    # state_e = float(fields[0])
                     count = int(fields[1])
                     states += count
                     # flipped: 
@@ -776,42 +785,33 @@ class MSout_hb:
                         ir = self.HDR.iconf2ires[ic]
                         xs[ir] = self.HDR.free_iconfs.index(ic)
 
-                    # any cells to zero out?
-                    xz = Ix[np.isin(Ix, xs)==False]
-                    if len(xz):
-                        S[xz, :] = 0
-                    yz = Iy[np.isin(Iy, xs)==False]
-                    if len(yz):
-                        S[:, yz] = 0
-                    # increment P with S
-                    P += S*count
+                    selection = np.ix_(xs, xs)
+                    S_i = S[selection]
+                    # increment P with S_i
+                    P[selection] += S_i*count
+
+                    # decrease the other indices
+                    mask = np.ones(S.shape, dtype=bool)
+                    mask[selection] = False
+                    excluded_indices = np.argwhere(mask)
                     # indices for decrement
-                    di, dj = (self.I - S).nonzero()
-                    # check if cells to decrement already have a count:
-                    if len(di):
-                        # # check val: if < count => 0, else sub count
-                        for i, j in zip(di, dj):
-                            val = P[i, j]
-                            if val <= count:
-                                P[i, j] = 0
-                            else:
-                                P[i, j] -= count
+                    P[excluded_indices[:, 0], excluded_indices[:, 1]] = np.maximum(0,
+                                                                                   P[excluded_indices[:, 0], excluded_indices[:, 1]] - count
+                                                                                   )
 
                     if mc_lines % self.n_skip == 0:
-                        si, sj = S.nonzero()
+                        si, sj = S_i.nonzero()
                         sij = tuple(zip(si, sj))
                         hb_states[sij][0] += count
 
-                    # reset S to I values for next state:
-                    S[Ix, Iy] = 1
-
+        # create pairs dict:
         pi, pj = P.nonzero()
         for p in zip(pi, pj):
             cnt = P[p[0], p[1]]
             hb_pairs[p][0] += cnt
             hb_pairs[p][1] = cnt/states
 
-        # update states occ:
+        # update states dict with occ:
         for s in hb_states:
             cnt = hb_states[s][0]
             hb_states[s][1] = cnt/states
