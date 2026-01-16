@@ -66,6 +66,27 @@ pair_classes = {(-1, -1): -2,  # bk, bk: not in matrix
                 }
 
 
+def is_int(val:str) -> bool:
+    try:
+        return str(int(val)) == val
+    except ValueError:
+        return False
+
+
+def get_titr_vec(titr_fp: Path, titr_point: str) -> np.ndarray:
+    if is_int(titr_point):
+        titr_point = titr_point + ".0"
+    
+    df = table_to_df(titr_fp)
+    vec = None
+    vec = df.filter(items=[df.columns[0], titr_point], axis=1)
+    if not vec.shape[1]:
+        print(f"Titration point not found in {titr_fp!s}: {titr_point}")
+        return None
+    
+    return vec.to_numpy()
+
+
 def get_hb_paths(mcce_dir: Path, ph: str = "7", eh: str = "0") -> Tuple[Path]:
     """Return the paths to head3, step2 pdb, msout file, the hah file, 
     and 'microstate ready', expanded hah file path.
@@ -350,17 +371,35 @@ class MSout_hb:
         used in extend_hah_data function.
         """
         assert self.hah_fp.name == HAH_FNAME_INIT
+
+        occ_fp = self.step2_fp.with_name("fort.38")
+        vec = get_titr_vec(occ_fp, self.HDR.pH)
+
+        def get_occ(cid):
+            try:
+                return vec[np.where(vec[:,0]==cid)][0,1]
+            except IndexError:
+                return -1
+
+        df["d_occ"] = df["confid_donor"].apply(get_occ)
+        df["a_occ"] = df["confid_acceptor"].apply(get_occ)
+        msk_occ = (df["d_occ"]==0) | (df["a_occ"]==0)
+        if msk_occ.any():
+            df = df.drop(index=df.loc[msk_occ].index, axis=0)
+
         df["d_off"] = df["confid_donor"].apply(self.CI.is_fixed_off)
         df["a_off"] = df["confid_acceptor"].apply(self.CI.is_fixed_off)
         msk_off = (df["d_off"]==1) | (df["a_off"]==1)
         if msk_off.any():
             df = df.drop(index=df.loc[msk_off].index, axis=0)
+
         # remove BK-BK:
         msk_bk = (df["confid_donor"].str.contains("BK")) & (df["confid_acceptor"].str.contains("BK"))
         if msk_bk.any():
             df = df.drop(index=df.loc[msk_bk].index, axis=0)
+
         # drop the temp columns before saving:
-        df = df.drop(columns=["d_off", "a_off"])
+        df = df.drop(columns=["d_occ", "a_occ","d_off", "a_off"])
         reduced_fp = self.hah_fp.with_name(fHAH_FNAME.format(self.pheh_str))
         # reset hah path:
         self.hah_fp = reduced_fp
@@ -589,7 +628,7 @@ class MSout_hb:
     
         return df
 
-    def get_hah_matrix(self) -> csr_matrix:
+    def get_hah_matrix0(self) -> csr_matrix:
         """Create a sparse matrix set with 1 for each hb pairs (Mi,Mj)
         from the dataframe.
         """
@@ -620,6 +659,39 @@ class MSout_hb:
 
         return csr_matrix(([1]*n_rows, (df["Mi"].values, df["Mj"].values)),
                           shape=(N, N))
+
+    def get_hah_matrix(self) -> np.matrix:
+        """Create a dense matrix set with 1 for each hb pairs (Mi,Mj)
+        from the dataframe.
+        """
+        # Drop duplicates Mij indices:
+        # - dups occur when a donor can donate multiple H-atoms
+        # - needed for scipy sparse matrix: the 1 flag for h-bond pairs
+        #   would be summed for dups anyways.
+        # Dropping dups or the reducing of indices by scipy may be a problem
+        # when converting the 'free ires iconf' indices back to h3 iconfs
+        # mask with the valid pair classes:
+        msk = self.df["free"].gt(0)
+        df = self.df.loc[msk]
+        df = df.drop_duplicates(subset=["Mi", "Mj"])
+
+        negi, negj = df["Mi"]<0, df["Mj"]<0
+        check_neg = negi | negj
+        if check_neg.any():
+            neg = df.loc[check_neg]
+            # save to investigate:
+            neg_fp = self.hah_ms_fp.with_suffix(".unmapped.csv")
+            neg.to_csv(neg_fp, index=False)
+            print(f"ERROR: {neg.shape[0]} matrix indices have negative values!")
+            sys.exit(f"Unmapped iconfs saved to {neg_fp!s}")
+
+        n_rows = df.shape[0]
+        print(f"Unique H-bonding pairs for matrix: {n_rows}")
+        N = self.HDR.n_free_ics + self.n_fx + self.n_bk
+        I = np.zeros((N, N), dtype=int)
+        I[df["Mi"].values, df["Mj"].values] = 1
+
+        return I
 
     def load_ms_hb0(self):
         """Process the 'msout file' for H-bond data using the hb pairs matrix
@@ -744,10 +816,7 @@ class MSout_hb:
             if self.n_bk:
                 extended.extend([self.mat_iconfs.index(ic) for ic in self.dm_iconfs])
 
-        # Ix, Iy = self.I.nonzero()
-        # pairs & states matrices cannot be sparse
-        S = self.I.todense()
-        P = self.I.todense() * 0
+        P = self.I.copy() * 0
 
         msout_data = reader_gen(self.msout_fp)
         for lx, line in enumerate(msout_data, start=1):
@@ -786,18 +855,19 @@ class MSout_hb:
                         xs[ir] = self.HDR.free_iconfs.index(ic)
 
                     selection = np.ix_(xs, xs)
-                    S_i = S[selection]
+                    S_i = self.I[selection]
                     # increment P with S_i
                     P[selection] += S_i*count
 
                     # decrease the other indices
-                    mask = np.ones(S.shape, dtype=bool)
+                    mask = np.ones(self.I.shape, dtype=bool)
                     mask[selection] = False
                     excluded_indices = np.argwhere(mask)
                     # indices for decrement
-                    P[excluded_indices[:, 0], excluded_indices[:, 1]] = np.maximum(0,
-                                                                                   P[excluded_indices[:, 0], excluded_indices[:, 1]] - count
-                                                                                   )
+                    P[excluded_indices[:, 0],
+                      excluded_indices[:, 1]] = np.maximum(0,
+                                                           P[excluded_indices[:, 0],
+                                                             excluded_indices[:, 1]] - count)
 
                     if mc_lines % self.n_skip == 0:
                         si, sj = S_i.nonzero()
