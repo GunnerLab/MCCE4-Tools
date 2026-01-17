@@ -76,11 +76,10 @@ def is_int(val:str) -> bool:
 def get_titr_vec(titr_fp: Path, titr_point: str) -> np.ndarray:
     if is_int(titr_point):
         titr_point = titr_point + ".0"
-    
     df = table_to_df(titr_fp)
     vec = None
     vec = df.filter(items=[df.columns[0], titr_point], axis=1)
-    if not vec.shape[1]:
+    if vec.shape[1] < 2:
         print(f"Titration point not found in {titr_fp!s}: {titr_point}")
         return None
     
@@ -373,19 +372,19 @@ class MSout_hb:
         assert self.hah_fp.name == HAH_FNAME_INIT
 
         occ_fp = self.step2_fp.with_name("fort.38")
-        vec = get_titr_vec(occ_fp, self.HDR.pH)
+        vec = get_titr_vec(occ_fp, str(self.HDR.pH))
+        if vec is not None:
+            def get_occ(cid):
+                try:
+                    return vec[np.where(vec[:,0]==cid)][0,1]
+                except IndexError:
+                    return -1
 
-        def get_occ(cid):
-            try:
-                return vec[np.where(vec[:,0]==cid)][0,1]
-            except IndexError:
-                return -1
-
-        df["d_occ"] = df["confid_donor"].apply(get_occ)
-        df["a_occ"] = df["confid_acceptor"].apply(get_occ)
-        msk_occ = (df["d_occ"]==0) | (df["a_occ"]==0)
-        if msk_occ.any():
-            df = df.drop(index=df.loc[msk_occ].index, axis=0)
+            df["d_occ"] = df["confid_donor"].apply(get_occ)
+            df["a_occ"] = df["confid_acceptor"].apply(get_occ)
+            msk_occ = (df["d_occ"]==0) | (df["a_occ"]==0)
+            if msk_occ.any():
+                df = df.drop(index=df.loc[msk_occ].index, axis=0)
 
         df["d_off"] = df["confid_donor"].apply(self.CI.is_fixed_off)
         df["a_off"] = df["confid_acceptor"].apply(self.CI.is_fixed_off)
@@ -399,7 +398,10 @@ class MSout_hb:
             df = df.drop(index=df.loc[msk_bk].index, axis=0)
 
         # drop the temp columns before saving:
-        df = df.drop(columns=["d_occ", "a_occ","d_off", "a_off"])
+        if vec is None:
+            df = df.drop(columns=["d_off", "a_off"])
+        else:
+            df = df.drop(columns=["d_occ", "a_occ","d_off", "a_off"])
         reduced_fp = self.hah_fp.with_name(fHAH_FNAME.format(self.pheh_str))
         # reset hah path:
         self.hah_fp = reduced_fp
@@ -873,6 +875,9 @@ class MSout_hb:
                         si, sj = S_i.nonzero()
                         sij = tuple(zip(si, sj))
                         hb_states[sij][0] += count
+
+                    if mc_lines % (self.n_skip*5000) == 0:
+                        print(f" Trace: processed mc line {mc_lines:,}...")
 
         # create pairs dict:
         pi, pj = P.nonzero()
