@@ -193,7 +193,7 @@ def do_checks(mcce_dir: str, ph: str = "7", eh: str = "0"):
     """
     run_dir = Path(mcce_dir)
     print(f"Run dir: {run_dir!s}")
-    (_,_,_, hah_fp, _, _, states_csv) = get_hb_paths(run_dir, ph=ph, eh=eh)
+    (_,_,_, hah_fp, _, pairs_csv, states_csv) = get_hb_paths(run_dir, ph=ph, eh=eh)
 
     hah_da_pairs = get_da_pairs(hah_fp)
     if hah_da_pairs is None:
@@ -205,7 +205,7 @@ def do_checks(mcce_dir: str, ph: str = "7", eh: str = "0"):
         check_states(hah_da_pairs[:,[0,1]], states_csv)
 
     print((" Checks on the hb pairs (not yet integrated), are obtained with this command:\n"
-           f"  ms_sanity.py {hah_fp.relative_to(mcce_dir)}"))
+           f"  ms_sanity.py {pairs_csv.relative_to(mcce_dir)}"))
 
     return
 
