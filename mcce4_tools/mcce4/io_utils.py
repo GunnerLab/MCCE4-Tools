@@ -388,6 +388,22 @@ titr_type_files = ["entropy.out", "fort.38", "pK.out", "sum_crg.out"]
 titration_files = ["entropy.out", "fort.38", "sum_crg.out"]
 
 
+def txt2dict(txt_fp: Path) -> dict:
+    """Open a txt file assumed to contain a printed dict
+    and evaluate the text as such.
+    """
+    if not txt_fp.exists():
+        print(f"File not found: {txt_fp!s}")
+        return None
+
+    d = eval(txt_fp.read_text())
+    if not isinstance(d, dict):
+        print(f"Could not recover dict from file: {txt_fp!s}")
+        return None
+
+    return d
+
+
 class ToDf:
     """Class attribute: headers_dict.
     This dict is used to (re)set the header of the file parsed by pandas
