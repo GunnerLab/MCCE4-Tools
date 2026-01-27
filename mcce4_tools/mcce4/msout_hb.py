@@ -145,6 +145,12 @@ def get_da_pairs(hah_fp: Path) -> np.ndarray:
                        sep=r"\s+").drop_duplicates().to_numpy()
 
 
+def get_ms_pairs(pairs_csv: Path) -> np.ndarray:
+    """Return array with 3 fields: "donor","acceptor", "ms_occ"
+    """
+    return pd.read_csv(pairs_csv, usecols=["donor","acceptor","ms_occ"]).to_numpy()
+
+
 def get_states_keys(states_csv: Path) -> list:
     return pd.read_csv(states_csv,
                        usecols=["state_id"]).to_string(header=False,
@@ -188,6 +194,42 @@ def check_states(hah_da_pairs: np.ndarray, states_csv: Path,
 
     return
 
+
+def check_pairs(hah_da_pairs, pairs_csv):
+    ms_pairs = get_ms_pairs(pairs_csv)
+    correct_pairs = True
+    correct_occ = True
+
+    print(" Checking da_pairs in pairs file against da_pairs in hah file & fort.38...")
+    for d,a,occ in ms_pairs:
+        msk = hah_da_pairs[(hah_da_pairs[:,0]==d) & (hah_da_pairs[:,1]==a)]
+        if not len(msk):
+            print(f"Pair not found in hah_file: ({d}, {a})")
+            correct_pairs = False
+            continue
+
+        d_occ, a_occ = msk[:,[-2,-1]][0]
+        occ_max = min(d_occ, a_occ)
+        occ_min = max(0.0, d_occ + a_occ - 1.0)
+        if occ > occ_max + 1e-3:
+            print(f"Warning: occ {occ:.4f} of pair ({d}, {a}) exceeds max bound {occ_max:.3f} obtained from {d_occ:.3f} (donor) and {a_occ:.3f} (acceptor)")
+            correct_occ = False
+        if occ < occ_min - 1e-3:
+            print(f"Warning: occ {occ:.4f} of pair ({d}, {a}) below min bound {occ_min:.3f} obtained from {d_occ:.3f} (donor) and {a_occ:.3f} (acceptor)")
+            correct_occ = False
+
+    if correct_pairs and correct_occ:
+        print(" Passed.")
+    else:
+        msg = ""
+        if not correct_pairs:
+            msg = msg + " Failed due to spurious pairs in the hb_pairs file.\n"
+        if not correct_occ:
+            msg = msg + " Failed due to out-of-bound occupancies in the hb_pairs file."
+        print(msg)
+    return
+
+
 def do_checks(mcce_dir: str, ph: str = "7", eh: str = "0"):
     """Wrapper to perform check on ms_hbnets main output files.
     """
@@ -200,12 +242,14 @@ def do_checks(mcce_dir: str, ph: str = "7", eh: str = "0"):
         return
 
     if not states_csv.exists():
-        print(f"Not found: {states_csv.name}, skipping check on states file.")
+        print(f"Not found: {states_csv.name}, skipped check on states file.")
     else:
         check_states(hah_da_pairs[:,[0,1]], states_csv)
 
-    print((" Checks on the hb pairs (not yet integrated), are obtained with this command:\n"
-           f"  ms_sanity.py {pairs_csv.relative_to(mcce_dir)}"))
+    if not pairs_csv.exists():
+        print(f"Not found: {pairs_csv.name}, skipped check on pairs file.")
+    else:
+        check_pairs(hah_da_pairs, pairs_csv)
 
     return
 
@@ -351,12 +395,11 @@ def _process_hbpairs_numba(microstate: np.ndarray,
                            hb_adj_indptr: np.ndarray,
                            ms_mask: np.ndarray,
                            hb_pairs: np.ndarray,
-                           #effective_count = True
                            ):
     """Update hb_pairs matrix with microstate data.
 
-    hb_pairs is the hb pairs matrix, MSout_hb.P;
-    ms_mask is a boolean mask preset to True with the given ms iconfs, i.e.:
+    hb_pairs is the hb pairs dense matrix, MSout_hb.P;
+    ms_mask is a boolean mask preset to True with the given state iconfs, i.e.:
     ```
       ms_mask = np.zeros(self.n_hb_confs, dtype=np.uint8)
       ms_mask[microstate] = 1
@@ -388,10 +431,8 @@ class MSout_hb:
     def __init__(self, mcce_dir: str, ph: str = "7", eh: str = "0",
                  n_target_states: int = N_STATES,
                  load_states: bool = False,
-                 #pairs_sum_count: bool = False,
                  verbose: bool = False):
         self.verbose = verbose
-        #self.effective_count = not pairs_sum_count
         self.load_states = load_states
         self.run_dir = Path(mcce_dir)
 
@@ -774,7 +815,6 @@ class MSout_hb:
         # when converting the 'free ires iconf' indices back to h3 iconfs
         # mask with the valid pair classes:
         msk = self.df["free"].gt(0)
-        #df = self.df.loc[msk]
         df = self.df.loc[msk].drop_duplicates(subset=["Mi", "Mj"])
         n_rows = df.shape[0]
         print(f"Unique H-bonding pairs for matrix: {n_rows}")
@@ -806,9 +846,7 @@ class MSout_hb:
         # their corresponding values are in data[indptr[i]:indptr[i+1]].
 
         indptr = np.zeros(self.n_hb_confs + 1, dtype=np.int32)
-        #indptr = np.zeros(self.CI.n_confs + 1, dtype=np.int32)
         indices = []
-        #for d in range(self.CI.n_confs):
         for d in range(self.n_hb_confs):
             neighbors = self.hb_adj.get(d, ())
             indices.extend(sorted(neighbors))
@@ -826,7 +864,6 @@ class MSout_hb:
         _process_hbpairs_numba(microstate, count,
                                self.hb_adj_indices, self.hb_adj_indptr, ms_mask,
                                self.P
-                               #, effective_count=self.effective_count
                                )
         return
     
@@ -907,6 +944,14 @@ class MSout_hb:
     
     def load_hb_pairs(self):
         """Process the 'msout file' for H-bonding pairs.
+        Populate hb_pairs dict with the pair as index and [count, occ] as value.
+        Note:
+        The occ of the pair is that obtained over the entire state space, meaning
+        it is consistent with the occupancies of the pair members from fort.38.
+        The effective occ of a hb_pair is hb_state-dependent: it is the occ of the hb_state
+        where it occurs.
+        The hb microstate id, count & occ are returned by the `ms_hbnets` tool with
+        the --load_states option.
         """
         found_mc = False
         newmc = False
@@ -979,15 +1024,11 @@ class MSout_hb:
     def dicts2csv(self):
         if not self.load_states:
             if self.hb_pairs:
-                def get_resid(confid:str) -> str:
-                    id1 = res3_to_res1.get(confid[:3], confid[:3])
-                    return f"{id1}_" + confid[5] + str(int(confid[6:-4]))
-
                 # temporarily, save the unconverted dicts to text files
                 # so that they can be loaded without re-running ms_hbnets
                 # in order to implement the grouping
                 pdict_fp = self.pairs_csv.with_suffix(".dict")
-                pdict_fp.write_text(pformat(self.hb_pairs)+"\n")
+                pdict_fp.write_text(pformat(self.hb_pairs, sort_dicts=False)+"\n")
 
                 dfp = pd.DataFrame.from_dict(self.hb_pairs, orient="index",
                                             columns=["ms_count","ms_occ"]).reset_index()
@@ -996,16 +1037,12 @@ class MSout_hb:
                     lambda x: pd.Series([self.iconf2confid[x[0]],
                                          self.iconf2confid[x[1]]])
                                          )
-                dfp[["res_d","res_a"]] = dfp["index"].apply(
-                    lambda x: pd.Series([get_resid(self.iconf2confid[x[0]]),
-                                         get_resid(self.iconf2confid[x[1]])])
-                                         )
                 
-                pairs_out = dfp[["Mi","Mj","donor","acceptor","res_d","res_a","ms_count","ms_occ"]]
+                pairs_out = dfp[["Mi","Mj","donor","acceptor","ms_count","ms_occ"]]
                 pairs_out = pairs_out.sort_values(by="ms_count", ascending=False)
                 pairs_out.to_csv(self.pairs_csv, index=False)
 
-                dfp = dfp.drop(columns=["index","donor","acceptor","res_d","res_a"])
+                dfp = dfp.drop(columns=["index","donor","acceptor"])
                 # update expanded hah file with hb_pairs count, occ:
                 hah_df = pd.read_csv(self.hah_ms_fp)
                 hah_df = hah_df.merge(dfp, left_on=["Mi","Mj"], right_on=["Mi","Mj"])
@@ -1015,7 +1052,7 @@ class MSout_hb:
         
         if self.hb_states:
             sdict_fp = self.states_csv.with_suffix(".dict")
-            sdict_fp.write_text(pformat(self.hb_states)+"\n")
+            sdict_fp.write_text(pformat(self.hb_states, sort_dicts=False)+"\n")
         
             dfs = pd.DataFrame.from_dict(self.hb_states, orient='index',
                                         columns = ["ms_count","ms_occ"]).reset_index()
@@ -1101,7 +1138,6 @@ def cli(argv=None):
     else:
         mshb = MSout_hb(args.mcce_dir, args.ph, args.eh,
                         n_target_states=args.n_states,
-                        #pairs_sum_count=args.pairs_sum_count,
                         load_states=args.load_states,
                         verbose=args.verbose)
         print("Microstates H_bonds collection over.")
