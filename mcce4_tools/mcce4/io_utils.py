@@ -141,8 +141,7 @@ def get_msout_size_info(msout_fp: Path,
                         verbose: bool = False) -> Tuple[int, int, int]:
     """Return n_lines, n_skip_lines, n_mc_runs
     """
-    mso = str(msout_fp)
-    cmd = f"egrep '^MC' {mso}; wc -l {mso};"
+    cmd = f"egrep '^MC' {msout_fp!s}; wc -l {msout_fp!s};"
     out = subprocess_run(cmd, shell=True, check=True)
     if isinstance(out, CalledProcessError):
         print(out.stderr)
@@ -174,7 +173,9 @@ def reader_gen(fpath: Path):
             yield line
 
 
-def show_elapsed_time(start_t: time, info: str = None, writer: Callable = print):
+def show_elapsed_time(start_t: time, info: str = None,
+                      writer: Callable = print,
+                      return_time: bool = False):
     """If specific info is given, it follows the elapsed time marker, e.g.:
     'Elapsed time - <info>:'.
     Argument 'writer' is an output function, e.g. print.
@@ -186,8 +187,9 @@ def show_elapsed_time(start_t: time, info: str = None, writer: Callable = print)
         msg = f"Elapsed time: {elapsed:,.2f} s ({elapsed/60:,.2f} min)\n"
     else:
         msg = f"Elapsed time - {info}: {elapsed:,.2f} s ({elapsed/60:,.2f} min)\n"
-
     writer(msg)
+    if return_time:
+        return elapsed
 
     return
 
