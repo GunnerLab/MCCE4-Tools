@@ -30,14 +30,17 @@ if __name__ == "__main__":
         counts = df["Count"].values
         fractions = counts / total_microstates
     elif args.file.endswith(".csv"):
-        df = pd.read_csv(args.file)
-        # Get donor and acceptor pairs and their counts
+        df = pd.read_csv(args.file, comment="#")
+        # Get donor and acceptor pairs and their occ
         donor_acceptor_pairs = df[["donor", "acceptor"]].values
-        fractions = df["ms_occ"].values
+        for c in df.columns:
+            if c.startswith("occ") or c.endswith("ms_occ"):
+                occ_col = c
+                break
+        fractions = df[occ_col].values
     else:
         print("Unsupported file format. Please provide a .txt or .csv file.")
         sys.exit(1)
-
 
     passed = True
     # Check against hah.txt to see if any pair is not in hah.txt
@@ -78,13 +81,14 @@ if __name__ == "__main__":
             passed = False
             continue
         if d_frac is not None and a_frac is not None:
+            frac = round(frac, 3)
             occ_max = min(d_frac, a_frac)
             occ_min = max(0.0, d_frac + a_frac - 1.0)
-            if frac > occ_max + 1e-3:
-                print(f"Warning: ms_occ {frac:.4f} for pair ({d}, {a}) exceeds max bound {occ_max:.3f} obtained from {d_frac:.3f} (donor) and {a_frac:.3f} (acceptor)")
+            if frac > round(occ_max + 1e-3, 3):
+                print(f"Warning: {occ_col} {frac:.3f} for pair ({d}, {a}) exceeds max bound {occ_max:.3f} obtained from {d_frac:.3f} (donor) and {a_frac:.3f} (acceptor)")
                 passed = False
-            if frac < occ_min - 1e-3:
-                print(f"Warning: ms_occ {frac:.4f} for pair ({d}, {a}) below min bound {occ_min:.3f} obtained from {d_frac:.3f} (donor) and {a_frac:.3f} (acceptor)")
+            if frac < round(occ_min - 1e-3, 3):
+                print(f"Warning: {occ_col} {frac:.3f} for pair ({d}, {a}) below min bound {occ_min:.3f} obtained from {d_frac:.3f} (donor) and {a_frac:.3f} (acceptor)")
                 passed = False
     
     if passed:

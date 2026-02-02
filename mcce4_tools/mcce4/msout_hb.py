@@ -102,7 +102,7 @@ def get_titr_vec(titr_fp: Path, titr_point: str, non_zeros: bool = None) -> np.n
 def get_hb_paths(mcce_dir: Path, ph: str = "7", eh: str = "0") -> Tuple[Path]:
     """Return the paths to: head3.list, step2 pdb, the msout file, the hah
     file (reduced if found), the expanded hah file, and to the final csv files:
-    hb_pairs, hb_states, and hb_states_pairs (effective hb_pairs count & occ).
+    hb_pairs, hb_states, and hb_states_pairs (hb_pairs count, occ & state membership).
     """
     h3_fp, step2_fp, msout_fp = get_mcce_filepaths(mcce_dir, ph=ph, eh=eh)
     # reset to match precision in msout file name:
@@ -121,7 +121,10 @@ def get_hb_paths(mcce_dir: Path, ph: str = "7", eh: str = "0") -> Tuple[Path]:
             if not has_xyz:
                 sys.exit("Rerun detect_hbonds for new format")
 
-    return (h3_fp, step2_fp, msout_fp, hah_fp,
+    return (h3_fp,
+            step2_fp,
+            msout_fp,
+            hah_fp,
             mcce_dir.joinpath(fHAH_EXPANDED.format(pheh)),
             mcce_dir.joinpath(f"hb_pairs_{pheh}.csv"),
             mcce_dir.joinpath(f"hb_states_{pheh}.csv"),
@@ -151,11 +154,11 @@ def get_da_pairs(hah_fp: Path) -> np.ndarray:
 def get_ms_pairs(pairs_csv: Path) -> np.ndarray:
     """Return array with 3 fields: "donor","acceptor", "occ"
     """
-    return pd.read_csv(pairs_csv, usecols=["donor","acceptor","occ"]).to_numpy()
+    return pd.read_csv(pairs_csv, comment="#", usecols=["donor","acceptor","occ"]).to_numpy()
 
 
 def get_states_keys(states_csv: Path) -> list:
-    return pd.read_csv(states_csv,
+    return pd.read_csv(states_csv, comment="#",
                        usecols=["state_id"]).to_string(header=False,
                                                        index=False).splitlines()
 
@@ -211,14 +214,17 @@ def check_pairs(hah_da_pairs, pairs_csv):
             correct_pairs = False
             continue
 
+        occ = round(occ, 3)
         d_occ, a_occ = msk[:,[-2,-1]][0]
         occ_max = min(d_occ, a_occ)
         occ_min = max(0.0, d_occ + a_occ - 1.0)
-        if occ > occ_max + 1e-3:
-            print(f"Warning: occ {occ:.4f} of pair ({d}, {a}) exceeds max bound {occ_max:.3f} obtained from {d_occ:.3f} (donor) and {a_occ:.3f} (acceptor)")
+        if occ > round(occ_max + 1e-3, 3):
+            print((f"Warning: occ {occ:.3f} of pair ({d}, {a}) exceeds max bound {occ_max:.3f} "
+                   f"obtained from {d_occ:.3f} (donor) and {a_occ:.3f} (acceptor)"))
             correct_occ = False
-        if occ < occ_min - 1e-3:
-            print(f"Warning: occ {occ:.4f} of pair ({d}, {a}) below min bound {occ_min:.3f} obtained from {d_occ:.3f} (donor) and {a_occ:.3f} (acceptor)")
+        if occ < round(occ_min - 1e-3, 3):
+            print((f"Warning: occ {occ:.3f} of pair ({d}, {a}) below min bound {occ_min:.3f} "
+                   f"obtained from {d_occ:.3f} (donor) and {a_occ:.3f} (acceptor)"))
             correct_occ = False
 
     if correct_pairs and correct_occ:
@@ -238,21 +244,21 @@ def do_checks(mcce_dir: str, ph: str = "7", eh: str = "0"):
     """
     run_dir = Path(mcce_dir)
     print(f"Run dir: {run_dir!s}")
-    (_,_,_, hah_fp, _, pairs_csv, states_csv) = get_hb_paths(run_dir, ph=ph, eh=eh)
+    (_,_,_, hah_fp, _, pairs_csv, states_csv, hb_states_pairs_csv) = get_hb_paths(run_dir, ph=ph, eh=eh)
 
     hah_da_pairs = get_da_pairs(hah_fp)
     if hah_da_pairs is None:
         return
 
-    if not states_csv.exists():
-        print(f"Not found: {states_csv.name}, skipped check on states file.")
-    else:
-        check_states(hah_da_pairs[:,[0,1]], states_csv)
-
     if not pairs_csv.exists():
         print(f"Not found: {pairs_csv.name}, skipped check on pairs file.")
     else:
         check_pairs(hah_da_pairs, pairs_csv)
+
+    if not states_csv.exists():
+        print(f"Not found: {states_csv.name}, skipped check on states file.")
+    else:
+        check_states(hah_da_pairs[:,[0,1]], states_csv)
 
     return
 
@@ -285,7 +291,6 @@ class ConfInfo:
         """Popuate the 'conf_info' attribute (np.ndarray): a lookup 'table' for:
         confid:0, crg:1, iconf:2, is_fixed:3, ires:4, is_free:5
         """
-        print("\nPopulating the lookup array with head3.lst and msout file header data")
         conf_info = []
         with open(self.h3_fp) as h3:
             lines = h3.readlines()[1:]
@@ -317,9 +322,9 @@ class ConfInfo:
         # sumcrg for not is_free & is_fixed on:
         self.background_crg = conf_info[np.where((conf_info[:,-1]==0) 
                                                   & (conf_info[:,3]==1)), 1].sum()
-        print(f" Background crg: {self.background_crg}",
-              f" n_confs: {self.n_confs}", sep="\n")
         if self.verbose:
+            print(f" Background crg: {self.background_crg}",
+                  f" n_confs: {self.n_confs}", sep="\n")
             self.fieldnames()
         self.conf_info = conf_info
 
@@ -426,15 +431,26 @@ def _process_hbpairs_numba(microstate: np.ndarray,
 
 
 class MSout_hb:
-    """Class to process the'msout file' for H-bonds data.
-
-    Arguments:
-        - head3_file, msout_file (str): Paths to head3.lst & msout files.
+    """Class to process the 'msout file' for H-bonds data.
     """
     def __init__(self, mcce_dir: str, ph: str = "7", eh: str = "0",
                  n_target_states: int = N_STATES,
                  load_states: bool = False,
                  verbose: bool = False):
+        """
+        MSout_hb class constructor, __init__.
+        
+        Arguments:
+         - mcce_dir (str): Path to a mcce simulation directory.
+         - ph (str, '7'): Titration pH.
+         - eh (str, '0'): Titration Eh.
+         - n_target_states (int, 25,000): Number of hb states to return (upper bound).
+         - load_states (bool, False): Must be True to load hb states instead of hb pairs.
+           When True, the output file 'hb_states_pairs_{pheh}.csv' has the hb pair state
+           membership in the column 'state_id', which is the index found in the 'ix' column
+           of the 'hb_states_{pheh}.csv' file.
+         - verbose (bool, False): Print more details if True.
+        """
         self.verbose = verbose
         self.load_states = load_states
         self.n_target_states = n_target_states
@@ -487,10 +503,9 @@ class MSout_hb:
         # states space size, incremented by either load_ functions
         self.n_space: int = 0
 
-        self.hb_states: dict = None
         self.I: csr_matrix = None
-        self.states_sum_cnt: int = 0
-        self.states_sum_occ: float = 0.0
+        self.hb_states: dict = None
+        self.n_hb_space: int = 0
         self.hb_pairs: dict = None
         self.hb_adj = {}
         self.hb_adj_indices: np.ndarray
@@ -519,6 +534,7 @@ class MSout_hb:
             show_elapsed_time(start_t, info="Loading H-bonding pairs")
 
         start_t = time.time()
+        print(self.__str__())
         self.dicts2csv()
         show_elapsed_time(start_t, info="Processing final outputs")
 
@@ -928,21 +944,17 @@ class MSout_hb:
                     if mc_lines % (self.n_skip*5000) == 0:
                         print(f" Trace: processed mc lines {mc_lines:,}...")
 
+        self.hb_states = dict(hb_states)
+        # sum count:
+        self.n_hb_space = np.array(list(self.hb_states.values()))[:,0].sum()
         # update states dict with occ:
         for s in hb_states:
             hb_states[s][1] = hb_states[s][0]/self.n_space
 
-        self.hb_states = dict(hb_states)
-        # accepted ms with flipped iconfs
-        print(f"\nProcessed mc lines: {mc_lines:,}")
+        print(f"\nProcessed mc lines: {mc_lines:,}")  # accepted ms with flipped iconfs
         print(f"State space: {self.n_space:,}")
-        print(f"H-bonding states: {len(self.hb_states):,}")
-        print(f"States target count: {self.n_target_states:,}")
-        self.states_sum_cnt = np.array(list(self.hb_states.values()))[:,0].sum()
-        self.states_sum_occ = np.array(list(self.hb_states.values()))[:,1].sum()
-        print("States sum totals:")
-        print(f"  count: {self.states_sum_cnt:,.0f} ({self.states_sum_cnt/self.n_space:.2%} of state space)")
-        print(f"    occ: {self.states_sum_occ:.2%}")
+        print(f"H-bonding space: {self.n_hb_space:,.0f} ({self.n_hb_space/self.n_space:.2%} of state space)")
+        print(f"H-bonding states: {len(self.hb_states):,} (target: {self.n_target_states:,})")
 
         return
     
@@ -1022,42 +1034,32 @@ class MSout_hb:
         return
 
     def dicts2csv(self):
-        if not self.load_states:
-            if self.hb_pairs:
-                # temporarily, save the unconverted dicts to text files
-                # so that they can be loaded (with io_utils.txt2dict) without
-                # re-running ms_hbnets in order to produce a different output
-                pdict_fp = self.pairs_csv.with_suffix(".dict")
-                pdict_fp.write_text(pformat(self.hb_pairs, sort_dicts=False)+"\n")
+        if self.hb_pairs:
+            dfp = pd.DataFrame.from_dict(self.hb_pairs, orient="index",
+                                         columns=["count","occ"]).reset_index()
+            dfp[["Mi","Mj"]] = dfp["index"].apply(lambda x: pd.Series([int(x[0]),int(x[1])]))
+            dfp[["donor","acceptor"]] = dfp["index"].apply(
+                lambda x: pd.Series([self.iconf2confid[x[0]],
+                                        self.iconf2confid[x[1]]])
+                                        )
+            dfp["occ"] = dfp["occ"].round(6)
+            pairs_out = dfp[["Mi","Mj","donor","acceptor","count","occ"]]
+            pairs_out = pairs_out.sort_values(by="count", ascending=False)
+            pairs_out.to_csv(self.pairs_csv, index=False)
 
-                dfp = pd.DataFrame.from_dict(self.hb_pairs, orient="index",
-                                            columns=["count","occ"]).reset_index()
-                dfp[["Mi","Mj"]] = dfp["index"].apply(lambda x: pd.Series([int(x[0]),int(x[1])]))
-                dfp[["donor","acceptor"]] = dfp["index"].apply(
-                    lambda x: pd.Series([self.iconf2confid[x[0]],
-                                         self.iconf2confid[x[1]]])
-                                         )
-                dfp["occ"] = dfp["occ"].round(6)
-                pairs_out = dfp[["Mi","Mj","donor","acceptor","count","occ"]]
-                pairs_out = pairs_out.sort_values(by="count", ascending=False)
-                pairs_out.to_csv(self.pairs_csv, index=False)
+            dfp = dfp.drop(columns=["index","donor","acceptor"])
+            # update expanded hah file with hb_pairs count, occ:
+            hah_df = pd.read_csv(self.hah_ms_fp, comment="#")
+            hah_df = hah_df.merge(dfp, left_on=["Mi","Mj"], right_on=["Mi","Mj"])
+            hah_df.to_csv(self.hah_ms_fp, index=False)
 
-                dfp = dfp.drop(columns=["index","donor","acceptor"])
-                # update expanded hah file with hb_pairs count, occ:
-                hah_df = pd.read_csv(self.hah_ms_fp)
-                hah_df = hah_df.merge(dfp, left_on=["Mi","Mj"], right_on=["Mi","Mj"])
-                hah_df.to_csv(self.hah_ms_fp, index=False)
-
-                print(f"Main output file: {self.pairs_csv!s}\n")
-            return
+            print(f"Main output file: {self.pairs_csv!s}\n")
         
         if self.hb_states:
-            sdict_fp = self.states_csv.with_suffix(".dict")
-            sdict_fp.write_text(pformat(self.hb_states, sort_dicts=False)+"\n")
-        
-            states_pairs_dict = defaultdict(int)
+            states_pairs_dict = defaultdict(lambda: [0, 0])
             dfs = pd.DataFrame.from_dict(self.hb_states, orient='index',
-                                         columns = ["count","occ"]).reset_index()
+                                         columns = ["count","occ"])
+            dfs = dfs.sort_values(by="count", ascending=False).reset_index()
             dfs["occ"] = dfs["occ"].round(6)
             dfs["state_id"] = None
             for rx, ro in dfs.iterrows():
@@ -1066,40 +1068,44 @@ class MSout_hb:
                 # get the effective count for each pair in the states
                 state_count = ro["count"]
                 for tpl in ro["index"]:
-                    states_pairs_dict[tpl] += state_count
-
+                    states_pairs_dict[tpl][0] += state_count
+                    states_pairs_dict[tpl][1] = rx   # parent state index
             states_pairs_dict = dict(sorted(states_pairs_dict.items(),
-                                key=lambda item:item[1], reverse=True))
+                                            key=lambda item:item[1][0], reverse=True))
             with open(self.states_pairs_csv, "w") as fo:
-                fo.write("# Effective hb_pairs occ from the saved hb_states\nMi,Mj,donor,acceptor,count,occ\n")
+                fo.write(("# States hb_pairs; last 3 columns: state count, occ & membership\n"
+                          "Mi,Mj,donor,acceptor,count,occ,state_id\n"))
                 for tpl in states_pairs_dict:
                     Mi = int(tpl[0])
                     Mj = int(tpl[1])
                     _ = fo.write(",".join([f"{Mi},{Mj}",
                                            f"{self.iconf2confid[Mi]},{self.iconf2confid[Mj]}",
-                                           str(states_pairs_dict[tpl]),
-                                           f"{states_pairs_dict[tpl]/self.n_space:.6f}"]
+                                           f"{states_pairs_dict[tpl][0]}",
+                                           f"{states_pairs_dict[tpl][0]/self.n_hb_space:.6f}",
+                                           f"{states_pairs_dict[tpl][1]}"]
                                           ) + "\n"
                                  )
-
+            dfs.index.name = "ix"
             dfs = dfs[["state_id","count","occ"]]
-            dfs = dfs.sort_values(by="count", ascending=False)
-            dfs.to_csv(self.states_csv, index=False)
+            dfs.to_csv(self.states_csv, index=True)
 
             # insert comment about % returned states
             note = (f"# Data for the {len(self.hb_states):,} saved hb_states whose sum count represents "
-                    f"{self.states_sum_cnt/self.n_space:.2%} of the state space ({self.n_space:,})")
+                    f"{self.n_hb_space/self.n_space:.2%} of the state space ({self.n_space:,})")
             subprocess_run(f"sed -i '1i {note}' {self.states_csv!s}", shell=True)
 
-            print(f"Main output files:\n  {self.states_csv!s}\n  {self.states_pairs_csv!s}\n")
+            print(("Main output files:\n"
+                   f"  {self.states_pairs_csv!s}: hb pairs with state membership\n"
+                   f"  {self.states_csv!s}: hb states data\n"))
         return
 
     def __str__(self):
         return (f"Conformers: {self.CI.n_confs:,}\n"
-                f"Free residues: {self.HDR.n_free_res:,}\n"
                 f"Fixed residues: {self.HDR.n_fixed_ics:,}\n"
-                f"Background charge: {self.CI.background_crg:.0f}\n"
+                f"Free residues: {self.HDR.n_free_res:,}\n"
+                f"Free conformers: {self.HDR.n_free_ics:,}\n"
                 f"State space: {self.n_space:,}\n"
+                f"Background charge: {self.CI.background_crg:.0f}\n"
                 )
 
 
