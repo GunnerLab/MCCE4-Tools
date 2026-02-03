@@ -24,7 +24,8 @@ try:
 except ImportError as e:
     print(f"Oops! Forgot to activate an appropriate environment?\n{e}")
     sys.exit(1)
- 
+
+from mcce4.constants import res3_to_res1
 from mcce4.io_utils import MsoutHeaderData
 from mcce4.io_utils import N_HDR, N_STATES
 from mcce4.io_utils import get_mcce_filepaths, get_msout_size_info
@@ -51,6 +52,7 @@ HAH_FNAME_INIT = "step2_out_hah.txt"
 # with 0 occupancy
 fHAH_FNAME = "hah_{}.txt"
 fHAH_EXPANDED = "expanded_hah_{}.csv"
+fPAIR_RES = "hb_pairs_res_{}.csv"
 
 
 # mapping of iconf (donor, acceptor) pairs for classification purposes:
@@ -567,19 +569,35 @@ class MSout_hb:
             # occ columns are kept
             df["d_occ"] = df["confid_donor"].apply(get_occ)
             df["a_occ"] = df["confid_acceptor"].apply(get_occ)
+            msk_negocc = (df["d_occ"]==-1) | (df["a_occ"]==-1)
+            if msk_negocc.any():
+                # problem!
+                negocc_fp = self.hah_fp.with_name("confs_not_found_in_fort38.tsv")
+                df.loc[msk_negocc].to_csv(negocc_fp, sep="\t")
+                sys.exit(f"ERROR: Conformers not found in fort.38 in {negocc_fp!s}")
+
             msk_occ = (df["d_occ"]==0) | (df["a_occ"]==0)
             if msk_occ.any():
+                if self.verbose:
+                    occ0_fp = self.hah_fp.with_name("dropped_occ0confs.tsv")
+                    df.loc[msk_occ].to_csv(occ0_fp, sep="\t")
                 df = df.drop(index=df.loc[msk_occ].index, axis=0)
 
         # remove BK-BK:
         msk_bk = (df["confid_donor"].str.contains("BK")) & (df["confid_acceptor"].str.contains("BK"))
         if msk_bk.any():
+            if self.verbose:
+                bk_fp = self.hah_fp.with_name("dropped_bk2bk_confs.tsv")
+                df.loc[msk_bk].to_csv(bk_fp, sep="\t")
             df = df.drop(index=df.loc[msk_bk].index, axis=0)
 
         df["d_off"] = df["confid_donor"].apply(self.CI.is_fixed_off)
         df["a_off"] = df["confid_acceptor"].apply(self.CI.is_fixed_off)
         msk_off = (df["d_off"]==1) | (df["a_off"]==1)
         if msk_off.any():
+            if self.verbose:
+                off_fp = self.hah_fp.with_name("dropped_fixedoff_confs.tsv")
+                df.loc[msk_off].to_csv(off_fp, sep="\t")
             df = df.drop(index=df.loc[msk_off].index, axis=0)
         df = df.drop(columns=["d_off", "a_off"])
 
@@ -896,7 +914,8 @@ class MSout_hb:
         """
         found_mc = False
         newmc = False
-        hb_states =  defaultdict(lambda: [0, 0.])
+        # value list: E, count, occ
+        hb_states =  defaultdict(lambda: [0., 0, 0.])
         mc_lines = 0
 
         msout_data = reader_gen(self.msout_fp)
@@ -930,6 +949,7 @@ class MSout_hb:
                         continue
 
                     mc_lines += 1
+                    #state_e = float(fields[0])
                     count = int(fields[1])
                     self.n_space += count
                     # flipped: 
@@ -939,17 +959,19 @@ class MSout_hb:
                     if mc_lines % self.n_skip == 0:
                         si, sj = self.I[np.ix_(xs, xs)].nonzero()
                         sij = tuple(zip(xs[si], xs[sj]))
-                        hb_states[sij][0] += count
+                        hb_states[sij][0] += round(float(fields[0]),3)
+                        hb_states[sij][1] += count
 
                     if mc_lines % (self.n_skip*5000) == 0:
                         print(f" Trace: processed mc lines {mc_lines:,}...")
 
         self.hb_states = dict(hb_states)
         # sum count:
-        self.n_hb_space = np.array(list(self.hb_states.values()))[:,0].sum()
-        # update states dict with occ:
+        self.n_hb_space = np.array(list(self.hb_states.values()))[:,1].sum()
+        # update states dict with aver E & occ:
         for s in hb_states:
-            hb_states[s][1] = hb_states[s][0]/self.n_space
+            hb_states[s][0] = hb_states[s][0]/self.n_space
+            hb_states[s][2] = hb_states[s][1]/self.n_space
 
         print(f"\nProcessed mc lines: {mc_lines:,}")  # accepted ms with flipped iconfs
         print(f"State space: {self.n_space:,}")
@@ -1034,59 +1056,74 @@ class MSout_hb:
         return
 
     def dicts2csv(self):
+        def get_resid(confid:str) -> str:
+            id1 = res3_to_res1.get(confid[:3], confid[:3])
+            return f"{id1}_" + confid[5] + str(int(confid[6:-4]))
+        
         if self.hb_pairs:
             dfp = pd.DataFrame.from_dict(self.hb_pairs, orient="index",
                                          columns=["count","occ"]).reset_index()
             dfp[["Mi","Mj"]] = dfp["index"].apply(lambda x: pd.Series([int(x[0]),int(x[1])]))
             dfp[["donor","acceptor"]] = dfp["index"].apply(
-                lambda x: pd.Series([self.iconf2confid[x[0]],
-                                        self.iconf2confid[x[1]]])
-                                        )
+                lambda x: pd.Series([self.iconf2confid[x[0]],self.iconf2confid[x[1]]]))
             dfp["occ"] = dfp["occ"].round(6)
             pairs_out = dfp[["Mi","Mj","donor","acceptor","count","occ"]]
             pairs_out = pairs_out.sort_values(by="count", ascending=False)
             pairs_out.to_csv(self.pairs_csv, index=False)
 
-            dfp = dfp.drop(columns=["index","donor","acceptor"])
+            # grouped by 1-letter res codes for loading in cytoscape
+            pairs_res_fp = fPAIR_RES.format(self.pheh_str)
+            dfp[["res_d","res_a"]] = dfp["index"].apply(
+                lambda x: pd.Series([get_resid(self.iconf2confid[x[0]]),get_resid(self.iconf2confid[x[1]])]))
+            dfp_res = dfp.groupby(["res_d","res_a"], as_index=False).agg({"count": "mean","occ": "mean"})
+            dfp_res = dfp_res.sort_values(by="count", ascending=False)
+            dfp_res.to_csv(pairs_res_fp, index=False)
+
+            dfp = dfp.drop(columns=["index","donor","acceptor", "res_d","res_a"])
             # update expanded hah file with hb_pairs count, occ:
             hah_df = pd.read_csv(self.hah_ms_fp, comment="#")
             hah_df = hah_df.merge(dfp, left_on=["Mi","Mj"], right_on=["Mi","Mj"])
             hah_df.to_csv(self.hah_ms_fp, index=False)
 
-            print(f"Main output file: {self.pairs_csv!s}\n")
+            print(("Main output files:\n"
+                   f"  {self.pairs_csv!s} ({pairs_out.shape[0]:,} rows): conformers hb pairs\n"
+                   f"  {pairs_res_fp!s} ({dfp_res.shape[0]:,} rows): residues hb pairs (for loading in Cytoscape)\n"))
         
         if self.hb_states:
-            states_pairs_dict = defaultdict(lambda: [0, 0])
+            states_pairs_dict = defaultdict(int)
             dfs = pd.DataFrame.from_dict(self.hb_states, orient='index',
-                                         columns = ["count","occ"])
+                                         columns = ["averE", "count", "occ"])
             dfs = dfs.sort_values(by="count", ascending=False).reset_index()
+            dfs["averE"] = dfs["averE"].round(3)
             dfs["occ"] = dfs["occ"].round(6)
             dfs["state_id"] = None
             for rx, ro in dfs.iterrows():
+                # convert conf indices to confids:
                 dfs.loc[rx,"state_id"] = ",".join(f"({self.iconf2confid[tp[0]]},{self.iconf2confid[tp[1]]})"
                                                   for tp in ro["index"])
                 # get the effective count for each pair in the states
-                state_count = ro["count"]
+                # state_count = ro["count"]
                 for tpl in ro["index"]:
-                    states_pairs_dict[tpl][0] += state_count
-                    states_pairs_dict[tpl][1] = rx   # parent state index
+                    states_pairs_dict[tpl] += ro["count"]
+                    #states_pairs_dict[tpl][1].add(rx) # = rx   # parent state index
             states_pairs_dict = dict(sorted(states_pairs_dict.items(),
-                                            key=lambda item:item[1][0], reverse=True))
+                                            key=lambda item:item[1], reverse=True))
             with open(self.states_pairs_csv, "w") as fo:
-                fo.write(("# States hb_pairs; last 3 columns: state count, occ & membership\n"
-                          "Mi,Mj,donor,acceptor,count,occ,state_id\n"))
+                fo.write(("# States hb_pairs; last 2 columns: state count, occ\n"
+                          "Mi,Mj,donor,acceptor,count,occ\n"))
                 for tpl in states_pairs_dict:
                     Mi = int(tpl[0])
                     Mj = int(tpl[1])
                     _ = fo.write(",".join([f"{Mi},{Mj}",
                                            f"{self.iconf2confid[Mi]},{self.iconf2confid[Mj]}",
-                                           f"{states_pairs_dict[tpl][0]}",
-                                           f"{states_pairs_dict[tpl][0]/self.n_hb_space:.6f}",
-                                           f"{states_pairs_dict[tpl][1]}"]
+                                           f"{states_pairs_dict[tpl]}",
+                                           f"{states_pairs_dict[tpl]/self.n_hb_space:.6f}",
+                                           #f"{states_pairs_dict[tpl][1]}"
+                                           ]
                                           ) + "\n"
                                  )
             dfs.index.name = "ix"
-            dfs = dfs[["state_id","count","occ"]]
+            dfs = dfs[["state_id","averE","count","occ"]].sort_values(by="count", ascending=False)
             dfs.to_csv(self.states_csv, index=True)
 
             # insert comment about % returned states
@@ -1095,7 +1132,7 @@ class MSout_hb:
             subprocess_run(f"sed -i '1i {note}' {self.states_csv!s}", shell=True)
 
             print(("Main output files:\n"
-                   f"  {self.states_pairs_csv!s}: hb pairs with state membership\n"
+                   f"  {self.states_pairs_csv!s}: hb pairs with occ from hb state space\n"
                    f"  {self.states_csv!s}: hb states data\n"))
         return
 
