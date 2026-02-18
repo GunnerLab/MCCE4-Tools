@@ -518,7 +518,7 @@ def write_tcrgms_pdbs(
           referring to the cms-associated ms.
     """
     step2_fh = open(out_dir.parent.joinpath("step2_out.pdb"))
-
+    #tcrgms_df.to_csv('test.csv')
     top_df = tcrgms_df.set_index("residues")
     # isolate the series of associated ms indices:
     ids = top_df.iloc[0][:-1]
@@ -722,7 +722,7 @@ Input options:
             self.mcce_files[2],
             res_kinds=self.residue_kinds,
             with_tautomers=True,
-            reduced_ms_rows=self.args.reduced_ms_rows,
+            reduced_ms_rows=self.args.reduced_ms_rows
         )
 
         return

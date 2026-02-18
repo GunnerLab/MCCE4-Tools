@@ -1186,6 +1186,7 @@ class MSout_np:
         data = []
         ix_state = 1 if self.mc_load == "all" else 0
         for it, itm in enumerate(top_cms):
+            
             if ix_state == 1:
                 # [ idx, list(state), totE, averE, occ, count ]
                 fields = [itm[0]]   # the shared index
@@ -1193,7 +1194,19 @@ class MSout_np:
                 fields = [it]  # current index
 
             state = itm[ix_state].copy()
+            charge_vec = []
             for i, s in enumerate(state):
+                if self.cms_resids[i][:3] == "HIS":
+                    if self.with_tautomers:
+                        s = HIS0_tautomers[s]
+                        if isinstance(s, str):
+                            charge_vec.append(0)
+                        else:
+                            charge_vec.append(1)
+
+                else:
+                    charge_vec.append(s)
+
                 if self.with_tautomers:
                     if self.cms_resids[i][:3] == "HIS":
                         # s is a pseudo charge
@@ -1243,7 +1256,7 @@ class MSout_np:
             df.reset_index(inplace=True)
             df.rename(columns={"index":"residues"}, inplace=True)
             df["info"] = info_dat
-            
+            #df.to_csv('top_df.csv')
             return df
         
         # Format as per original specs in Raihan's microstate_analysis_code:
