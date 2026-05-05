@@ -50,15 +50,22 @@ ANGBLOCK = 90   # Angle cutoff for blocking atoms, 180 is ideal, 90 is the
 # Minimum charge for hydrogen bond donor/acceptor, my best guess
 MIN_NCRG = -0.2 # Minimum heavy atom charge for hydrogen bond donor/acceptor
 MIN_HCRG = 0.2  # Minimum H atom charge for hydrogen bond donor/acceptor
-CRITERIA = f"""
-Criteria:
-  Donor-Acceptor (heavy atoms) Distance              : {DNEAR:1.1f} - {DFAR:1.1f}
-  D-H-A Angle (Angle >= this to qualify H bond)      : {ANGCUT:3.0f}
-  H--A-? Blocking Angle (Angle <= this blocks H bond): {ANGBLOCK:3.0f}
-  Heavy Atom Charge for H bond Donor/Acceptor        : < {MIN_NCRG:4.1f}
-  H Atom Charge for H bond Donor                     : > {MIN_HCRG:4.1f}
-"""
 
+# Strength presets for H-bond detection cutoffs.
+# Values are placeholders — tune before use.
+STRENGTH_PRESETS = {
+    "weak":   {"dnear": 2.0, "dfar": 4.0, "angcut":  90, "angblock": 90},
+    "medium": {"dnear": 2.2, "dfar": 3.5, "angcut": 120, "angblock": 85},
+    "strong": {"dnear": 2.5, "dfar": 3.2, "angcut": 150, "angblock": 80},
+}
+CRITERIA = """
+Criteria:
+  Donor-Acceptor (heavy atoms) Distance              : {dnear} - {dfar}
+  D-H-A Angle (Angle >= this to qualify H bond)      : {angcut}
+  H--A-? Blocking Angle (Angle <= this blocks H bond): {angblock}
+  Heavy Atom Charge for H bond Donor/Acceptor        : < {MIN_NCRG}
+  H Atom Charge for H bond Donor                     : > {MIN_HCRG}
+"""
 
 # Output files common endings; an actual file may be 4lzt_hah.txt
 hah_file = "hah.txt"
@@ -74,7 +81,6 @@ class Atom:
         self.iCode = ""
         self.xyz = (0.0, 0.0, 0.0)
         self.charge = 0.0
-        self.radius = 0.0
         self.confNum = 0
         self.confType = ""
         self.conn12 = []
@@ -130,7 +136,8 @@ def deg_angle(v1, v2) -> float:
     norm2 = np.linalg.norm(v2)
     if norm1 == 0 or norm2 == 0:
         return 0.0
-    return np.degrees(np.arccos(np.dot(v1, v2) / (norm1 * norm2)))
+    cos_angle = np.clip(np.dot(v1, v2) / (norm1 * norm2), -1.0, 1.0)
+    return np.degrees(np.arccos(cos_angle))
 
 
 def get_output_paths(pdb: Path, out_dir: str = "") -> Tuple[Path, Path, Path]:
@@ -158,8 +165,8 @@ def get_output_paths(pdb: Path, out_dir: str = "") -> Tuple[Path, Path, Path]:
 def get_atoms_list(pdb: Path,
                    no_bk: bool = False) -> Union[List[Atom], None]:
     """
-    Given a mcce pdb file, return a list of its atoms as Atom objects, 
-    which includes the backbone atoms if include_bk is True (False by default).
+    Given a mcce pdb file, return a list of its atoms as Atom objects.
+    Backbone atoms are excluded when no_bk is True (included by default).
     """
     if not pdb.exists():
         print("CRITICAL: pdb not found:", str(pdb))
@@ -167,13 +174,13 @@ def get_atoms_list(pdb: Path,
 
     # Parse the input pdb file for coordinates lines, with or without BK:
     if no_bk:
-        pattern = re.compile(r"^[ATOM  |HETATM].{79}(?!BK).*$", re.MULTILINE) 
+        pattern = re.compile(r"^(?:ATOM  |HETATM).{74}(?!BK).*$", re.MULTILINE)
     else:
-        pattern = re.compile(r"^[ATOM  |HETATM].*$", re.MULTILINE)
+        pattern = re.compile(r"^(?:ATOM  |HETATM).*$", re.MULTILINE)
 
     lines = pattern.findall(pdb.read_text())
     if not lines:
-        print("CRTICAL: pdb coordinates lines could not be parsed!")
+        print("CRITICAL: pdb coordinates lines could not be parsed!")
         return None
 
     atoms = []
@@ -240,9 +247,8 @@ def get_record_lines(records: list, rec_type: str=None) -> list:
                               acceptor.confID,
                               hbatms,
                               distance, angle,
-                              # space-less tuples:
-                              xyzd.__str__().replace(" ",""), 
-                              xyza.__str__().replace(" ",""))
+                              str(xyzd).replace(" ", ""),
+                              str(xyza).replace(" ", ""))
             lines.append(line)
     else:
         fmt ="{}  {}  {}--{}~{} {:3.0f}\n"
@@ -257,7 +263,9 @@ def get_record_lines(records: list, rec_type: str=None) -> list:
 
 
 def detect_hbonds(pdb_file: str, no_bk: bool = False,
-                  no_empty_files: bool = False, out_dir: str = "") -> Tuple[int, int]:
+                  no_empty_files: bool = False, out_dir: str = "",
+                  dnear: float = DNEAR, dfar: float = DFAR,
+                  angcut: float = ANGCUT, angblock: float = ANGBLOCK) -> Tuple[int, int]:
     """
     Detect hydrogen bonds between pairs of conformers atoms in a mcce pdb file and
     save their list to file <pdb name>_hah.txt.
@@ -313,7 +321,6 @@ def detect_hbonds(pdb_file: str, no_bk: bool = False,
 
     print("Detecting hydrogen bonds...")
     out_dir, hah_fp, block_fp = get_output_paths(pdb, out_dir)
-    print(CRITERIA)
 
     donors_acceptors = get_donor_acceptor_list(atoms)
     if not donors_acceptors:
@@ -321,6 +328,11 @@ def detect_hbonds(pdb_file: str, no_bk: bool = False,
             hah_fp.touch()
         return 0, 0
 
+    print(CRITERIA.format(
+    dnear=f"{dnear:1.1f}", dfar=f"{dfar:1.1f}",
+    angcut=f"{angcut:3.0f}", angblock=f"{angblock:3.0f}",
+    MIN_NCRG=f"{MIN_NCRG:4.1f}", MIN_HCRG=f"{MIN_HCRG:4.1f}"
+))
     print(f"Initial, potential H-bond pairs (heavy atoms): {len(donors_acceptors):,}")
 
     # Pick two atoms as potential hydrogen bond donors and acceptors
@@ -329,7 +341,7 @@ def detect_hbonds(pdb_file: str, no_bk: bool = False,
     for donor, acceptor in permutations(donors_acceptors, r=2):
         if donor.resid() == acceptor.resid():
             continue
-        if DNEAR < dist(donor, acceptor) < DFAR:
+        if dnear < dist(donor, acceptor) < dfar:
             # check angle of H atoms in atoms connected to donor
             for dx in donor.conn12:
                 if not dx.is_H():
@@ -338,14 +350,14 @@ def detect_hbonds(pdb_file: str, no_bk: bool = False,
                     continue
                 Vha = vec(dx, acceptor)
                 angle = deg_angle(vec(dx, donor), Vha)
-                if angle > ANGCUT:  # good D--H--A angle
+                if angle > angcut:  # good D--H--A angle
                     blocking = False
                     for ax in acceptor.conn12:
                         Vxa = vec(ax, acceptor)
                         blocking_angle = deg_angle(Vxa, Vha)
                         # connected atoms on acceptor block the D--H--A path if their angle
                         # with the acceptor is < ANGBLOCK
-                        if blocking_angle < ANGBLOCK:
+                        if blocking_angle < angblock:
                             blocking = True
                             blocking_records.append((dx, acceptor, ax, blocking_angle))
                             break
@@ -372,12 +384,29 @@ def detect_hbonds(pdb_file: str, no_bk: bool = False,
 
 def cli_parser():
     p = argparse.ArgumentParser(prog="detect_hbonds",
-        description="Detect hydrogen bonds between conformer atoms.",
+        description="""Detect hydrogen bonds between conformer atoms in an MCCE PDB file.
+
+Parses coordinate lines from the input PDB, groups atoms into conformers,
+builds intra-conformer connectivity, and identifies D-H...A hydrogen bonds
+between conformers. Optionally detects blocking atoms that obstruct the
+D-H...A path.
+
+Differences from step6.py:
+  - Backbone atoms can be included or excluded (step6 always excludes them).
+  - Blocking-atom detection is performed (step6 does not check for blockers).""",
         usage="""
-  detect_hbonds [step2_out.pdb]
-  detect_hbonds --out_dir <path/to/location/different/from/pdb/parent/folder>
-  detect_hbonds path/to/step2_out.pdb --no_bk
-  detect_hbonds path/to/step2_out.pdb --out_dir <path/to/other/location>
+  detect_hbonds
+  detect_hbonds -inpdb path/to/step2_out.pdb
+  detect_hbonds -inpdb step2_out.pdb --no_bk
+  detect_hbonds -inpdb step2_out.pdb -out_dir results/
+  detect_hbonds -inpdb step2_out.pdb -strength strong
+  detect_hbonds -inpdb step2_out.pdb -dnear 2.5 -dfar 3.2 -angcut 150
+""",
+        epilog="""output files:
+  <pdb>_hah.txt       H-bond list (Donor-H...Acceptor with distances and angles)
+  <pdb>_blocking.txt  Atoms that block potential H-bonds (if any found)
+
+Files are written to the PDB parent directory unless -out_dir is specified.
 """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -386,6 +415,36 @@ def cli_parser():
                     type=str,
                     help="Input pdb file in mcce format. Default: %(default)s.",
                     )
+    p.add_argument("-out_dir",
+                    default="",
+                    help="Optional output dir. Default: the pdb parent folder."
+                    )
+    p.add_argument("-dnear",
+                   default=DNEAR,
+                   type=float,
+                   help="Min donor-acceptor distance cutoff (Å). Default: %(default)s."
+                   )
+    p.add_argument("-dfar",
+                   default=DFAR,
+                   type=float,
+                   help="Max donor-acceptor distance cutoff (Å). Default: %(default)s."
+                   )
+    p.add_argument("-angcut",
+                   default=ANGCUT,
+                   type=float,
+                   help="Min D-H-A angle to qualify as H-bond. Default: %(default)s."
+                   )
+    p.add_argument("-angblock",
+                   default=ANGBLOCK,
+                   type=float,
+                   help="Max angle to consider a bond blocked. Default: %(default)s."
+                   )
+    p.add_argument("-strength",
+                   default=None,
+                   choices=["weak", "medium", "strong"],
+                   help="Preset cutoff values for H-bond strength. "
+                        "Overrides -dnear, -dfar, -angcut, -angblock when given."
+                   )
     p.add_argument("--no_bk",
                     default=False,
                     action="store_true",
@@ -396,10 +455,6 @@ def cli_parser():
                     action="store_true",
                     help="Don't create an empty file when no H-bonds are found; default: %(default)s."
                     )
-    p.add_argument("--out_dir",
-                    default="",
-                    help="Optional output dir. Default: the pdb parent folder."
-                    )
     return p
 
 
@@ -409,10 +464,22 @@ def cli(argv=None):
 
     pdb = Path(args.inpdb)
     if not pdb.exists():
-        sys.exit("CRITICAL: pdb not found:", str(pdb))
+        sys.exit(f"CRITICAL: pdb not found: {str(pdb)}")
 
-    result = detect_hbonds(args.inpdb, args.no_bk, args.no_empty_files, args.out_dir)
+    if args.strength is not None:
+        preset = STRENGTH_PRESETS[args.strength]
+        args.dnear    = preset["dnear"]
+        args.dfar     = preset["dfar"]
+        args.angcut   = preset["angcut"]
+        args.angblock = preset["angblock"]
+        print(f"Using '{args.strength}' strength preset.")
+
+    result = detect_hbonds(args.inpdb, args.no_bk, args.no_empty_files, args.out_dir,
+                           args.dnear, args.dfar, args.angcut, args.angblock)
     if result[0]:
         print("H_bonds collection over.")
 
     return
+
+if __name__ == "__main__":
+    sys.exit(cli())
