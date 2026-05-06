@@ -1,0 +1,122 @@
+#!/usr/bin/env python3
+import subprocess
+import sys
+import os
+import logging
+import requests
+import argparse
+from pathlib import Path
+from tqdm import tqdm
+
+# Setup logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    handlers=[
+        logging.FileHandler("pdb_processing.log"),
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+
+def get_detailed_metadata(pdb_id):
+    """Fetch extended metadata from RCSB PDB API."""
+    pdb_id = pdb_id.upper()
+    url = f"https://data.rcsb.org/rest/v1/core/entry/{pdb_id}"
+    info = {
+        'PDB': pdb_id, 'Residues': 0, 'Resolution': "N/A", 'Method': "N/A",
+        'Chains': 0, 'Classification': "N/A", 'Organism': "N/A", 'Mutations': "No"
+    }
+    
+    try:
+        response = requests.get(url, timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            entry_info = data.get('rcsb_entry_info', {})
+            info['Resolution'] = entry_info.get('resolution_combined', ["N/A"])[0]
+            info['Method'] = data.get('exptl', [{}])[0].get('method', "N/A")
+            info['Chains'] = entry_info.get('polymer_entity_count_protein', 0)
+            info['Classification'] = data.get('struct_keywords', {}).get('pdbx_keywords', "N/A")
+            
+            # Fetch Entity 1 for Organism and Sequence Length
+            entity_url = f"https://data.rcsb.org/rest/v1/core/polymer_entity/{pdb_id}/1"
+            e_resp = requests.get(entity_url, timeout=10)
+            if e_resp.status_code == 200:
+                e_data = e_resp.json()
+                info['Residues'] = e_data.get('entity_poly', {}).get('rcsb_sample_sequence_length', 0)
+                src = e_data.get('rcsb_entity_source_organism', [{}])[0]
+                info['Organism'] = src.get('rcsb_taxonomy_common_name') or src.get('scientific_name') or "N/A"
+                if e_data.get('entity_poly', {}).get('rcsb_mutation_count', 0) > 0:
+                    info['Mutations'] = "Yes"
+    except Exception:
+        pass
+    return info
+
+def check_downloaded_format(pdb_id):
+    """Checks current directory for results of getpdb."""
+    pdb_id = pdb_id.lower()
+    if Path(f"{pdb_id}.pdb").exists(): return ".pdb"
+    if Path(f"{pdb_id}.cif").exists(): return ".cif"
+    return "N/A"
+
+def run_workflow(input_file, out_dir):
+    input_path = Path(input_file)
+    
+    # Logic: Use provided out_dir, otherwise use the filename stem (e.g., 36pdbs)
+    final_out_dir = Path(out_dir) if out_dir else Path(input_path.stem)
+
+    if not input_path.is_file():
+        logging.error(f"Input file '{input_file}' not found.")
+        return
+
+    final_out_dir.mkdir(parents=True, exist_ok=True)
+
+    with open(input_path, 'r') as f:
+        pdbs = [line.strip() for line in f if line.strip()]
+
+    all_data = []
+    logging.info(f"Processing {len(pdbs)} entries. Output directory: {final_out_dir}")
+
+    original_dir = os.getcwd()
+    os.chdir(final_out_dir)
+
+    for pdb in tqdm(pdbs, desc="Downloading & Analyzing"):
+        status = "FAILED"
+        try:
+            result = subprocess.run(['getpdb', pdb], capture_output=True, text=True)
+            if result.returncode == 0:
+                status = "SUCCESS"
+        except Exception as e:
+            logging.error(f"Execution error for {pdb}: {e}")
+
+        metadata = get_detailed_metadata(pdb)
+        metadata['Downloaded'] = check_downloaded_format(pdb)
+        metadata['Status'] = status
+        all_data.append(metadata)
+
+    os.chdir(original_dir)
+    all_data.sort(key=lambda x: x['Residues'], reverse=True)
+
+    # Naming the report based on the input file name as well
+    output_report = f"{input_path.stem}_summary_report.txt"
+    with open(output_report, 'w') as out:
+        fmt = "{:<8} {:<10} {:<10} {:<15} {:<8} {:<20} {:<20} {:<10} {:<12} {:<10}\n"
+        header = fmt.format("PDB", "Residues", "Res(Å)", "Method", "Chains", "Classification", "Organism", "Mutants", "Format", "Status")
+        out.write(header)
+        out.write("-" * 135 + "\n")
+        
+        for d in all_data:
+            out.write(fmt.format(
+                d['PDB'], d['Residues'], str(d['Resolution']), d['Method'][:14], 
+                d['Chains'], d['Classification'][:19], d['Organism'][:19], 
+                d['Mutations'], d['Downloaded'], d['Status']
+            ))
+
+    logging.info(f"Report generated: {output_report}")
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Download PDBs and generate a summary report.")
+    parser.add_argument("input_file", help="Text file containing 1 column of PDB IDs.")
+    parser.add_argument("-out_dir", help="Optional override for the directory name.")
+    
+    args = parser.parse_args()
+    run_workflow(args.input_file, args.out_dir)
