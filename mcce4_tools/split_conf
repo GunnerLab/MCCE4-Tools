@@ -1,0 +1,112 @@
+#!/usr/bin/env python
+
+import os
+import argparse
+import sys
+import re
+
+def split_pdb_conformers(input_file, resi_raw):
+    # --- Normalization Logic ---
+    # Remove all spaces: 'LYS p 0317' -> 'LYSp0317'
+    clean_input = resi_raw.replace(" ", "")
+    
+    # Standardize to 'LYS p0317' for PDB searching
+    # This regex looks for the alpha part and the numeric part
+    match = re.match(r"([a-zA-Z]+)([a-zA-Z]\d+)", clean_input)
+    if match:
+        search_target = f"{match.group(1)} {match.group(2)}" # 'LYS p0317'
+    else:
+        search_target = resi_raw # Fallback to literal input
+    
+    # Directory name for filesystem safety
+    folder_res_id = search_target.replace(" ", "_")
+    output_dir = f"step2_{folder_res_id}"
+    
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+
+    backbone_atoms = []
+    conformers = {}
+    file_prefix = ""
+
+    try:
+        if not os.path.exists(input_file):
+            raise FileNotFoundError
+
+        with open(input_file, 'r') as f:
+            for line in f:
+                if not (line.startswith("ATOM") or line.startswith("HETATM")):
+                    continue
+                
+                # Extract residue info (columns 17-30)
+                res_info = line[17:30].strip()
+                
+                if search_target not in res_info:
+                    continue
+
+                if "_" in res_info:
+                    parts = res_info.split("_")
+                    suffix = parts[1]
+                    file_prefix = parts[0].replace(" ", "_")
+                else:
+                    continue
+
+                if suffix == "000":
+                    backbone_atoms.append(line)
+                else:
+                    if suffix not in conformers:
+                        conformers[suffix] = []
+                    conformers[suffix].append(line)
+
+        if not backbone_atoms:
+            print(f"[-] Error: No backbone (_000) atoms found for '{search_target}'")
+            return
+
+        # Output the PDB files
+        for suffix, atoms in conformers.items():
+            filename = f"{file_prefix}_{suffix}.pdb"
+            output_path = os.path.join(output_dir, filename)
+            
+            with open(output_path, 'w') as out:
+                for b_line in backbone_atoms:
+                    out.write(b_line)
+                for s_line in atoms:
+                    out.write(s_line)
+                out.write("END\n")
+            print(f"[+] Created: {output_path}")
+
+    except FileNotFoundError:
+        print(f"[-] Error: Input file '{input_file}' not found.")
+        sys.exit(1)
+
+if __name__ == "__main__":
+    examples = """
+Usage Examples:
+  python split_conf.py -resi LYSp0317
+  python split_conf.py -resi 'LYS p0317'
+  python split_conf.py -resi 'LYS p 0317'
+  python split_conf.py custom.pdb -resi "LYS p0317"
+    """
+
+    parser = argparse.ArgumentParser(
+        description="Splits PDB conformers by merging BK (_000) atoms with rotamers (_001, _002, etc.).",
+        epilog=examples,
+        formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    
+    parser.add_argument(
+        "input", 
+        nargs='?', 
+        default="step2_out.pdb", 
+        help="Input PDB file (Default: step2_out.pdb)"
+    )
+    
+    parser.add_argument(
+        "-resi", 
+        required=True, 
+        metavar="RESIDUE",
+        help="Target residue (e.g., 'LYS p 0317', 'LYSp0317', or 'LYS p0317')"
+    )
+
+    args = parser.parse_args()
+    split_pdb_conformers(args.input, args.resi)
