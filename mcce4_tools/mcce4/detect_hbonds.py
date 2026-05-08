@@ -55,8 +55,8 @@ MIN_HCRG = 0.2  # Minimum H atom charge for hydrogen bond donor/acceptor
 # Values are placeholders — tune before use.
 STRENGTH_PRESETS = {
     "weak":   {"dnear": 2.0, "dfar": 4.0, "angcut":  90, "angblock": 90},
-    "medium": {"dnear": 2.2, "dfar": 3.5, "angcut": 120, "angblock": 85},
-    "strong": {"dnear": 2.5, "dfar": 3.2, "angcut": 150, "angblock": 80},
+    "medium": {"dnear": 2.0, "dfar": 3.5, "angcut": 120, "angblock": 90},
+    "strong": {"dnear": 2.0, "dfar": 3.2, "angcut": 150, "angblock": 90},
 }
 CRITERIA = """
 Criteria:
