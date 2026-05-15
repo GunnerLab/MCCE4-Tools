@@ -39,12 +39,16 @@ NON_IONIZABLE_ORDER = [
     "PRO", "SER", "THR", "TRP", "VAL", "ASN", "GLN",
 ]
 
+ACIDS = {"ASP", "GLU", "CTR", "TYR"}
+BASES = {"ARG", "HIS", "LYS", "NTR"}
+RT_LN10 = 1.364
+
 PDB_PATTERN = re.compile(r"^[0-9][A-Za-z0-9]{3}$")
 
 PROTEIN_CSV = "protein_features.csv"
 RESIDUE_CSV = "residue_features.csv"
-FIG1_NAME = "residue_analysis.png"
 FIG2_NAME = "protein_charge_analysis.png"
+FIG3_NAME = "pka_energy_analysis.png"
 LOG_NAME = "analysis.log"
 
 
@@ -559,105 +563,12 @@ def run_plot(outdir, topdir, target_ph, burial_threshold, dpi):
 
     sns.set_theme(style="whitegrid", font_scale=0.95)
 
-    # ── Figure 1: Residue analysis (3 columns) ──────────────────────────────
-    fig1 = plt.figure(figsize=(18, 6))
-    gs = gridspec.GridSpec(2, 3, height_ratios=[3, 1], hspace=0.05,
-                           wspace=0.32, left=0.05, right=0.97, top=0.92, bottom=0.10)
-    ax_violin = fig1.add_subplot(gs[:, 0])
-    ax_burial = fig1.add_subplot(gs[:, 1])
-    ax_scatter = fig1.add_subplot(gs[0, 2])
-    ax_hist = fig1.add_subplot(gs[1, 2], sharex=ax_scatter)
-
-    # Panel 1: pKa shift violin
-    plot_data = [(r["restype"], r["pKa_shift_num"])
-                 for r in residue_data if r["pKa_shift_num"] is not None]
-    types_present = set(d[0] for d in plot_data)
-    order = [rt for rt in IONIZABLE_ORDER if rt in types_present]
-    colors = sns.color_palette("Set2", len(order))
-    palette = dict(zip(order, colors))
-    data_arrays = [np.array([s for t, s in plot_data if t == rt]) for rt in order]
-
-    parts = ax_violin.violinplot(data_arrays, positions=range(len(order)),
-                                  showmeans=False, showmedians=False, showextrema=False)
-    for i, pc in enumerate(parts["bodies"]):
-        pc.set_facecolor(palette[order[i]])
-        pc.set_alpha(0.7)
-    ax_violin.boxplot(data_arrays, positions=range(len(order)), widths=0.15,
-                       patch_artist=True,
-                       boxprops=dict(facecolor="white", linewidth=0.8),
-                       medianprops=dict(color="black", linewidth=1.2),
-                       whiskerprops=dict(linewidth=0.8),
-                       capprops=dict(linewidth=0.8),
-                       flierprops=dict(marker=".", markersize=2, alpha=0.4))
-    ax_violin.axhline(0, color="gray", linestyle="--", linewidth=0.8, zorder=0)
-    ax_violin.set_xticks(range(len(order)))
-    ax_violin.set_xticklabels(order)
-    ax_violin.set_ylabel("pKa shift  (pKa − pKa$_0$)")
-    ax_violin.set_title("pKa Shift Distribution by Ionizable Residue Type")
-    for i, rt in enumerate(order):
-        n = sum(1 for t, _ in plot_data if t == rt)
-        ax_violin.text(i, ax_violin.get_ylim()[1] * 0.95, f"n={n}",
-                        ha="center", va="top", fontsize=7, color="gray")
-
-    # Panel 2: Burial propensity bars
-    ion_types = sorted([rt for rt in IONIZABLE_ORDER if rt in burial_pct],
-                       key=lambda rt: burial_pct.get(rt, 0), reverse=True)
-    non_ion_types = sorted([rt for rt in NON_IONIZABLE_ORDER if rt in burial_pct],
-                           key=lambda rt: burial_pct.get(rt, 0), reverse=True)
-    labels = ion_types + [""] + non_ion_types
-    values = ([burial_pct.get(rt, 0) for rt in ion_types] + [0] +
-              [burial_pct.get(rt, 0) for rt in non_ion_types])
-    x = np.arange(len(labels))
+    colors = sns.color_palette("Set2", len(IONIZABLE_ORDER))
+    palette = dict(zip(IONIZABLE_ORDER, colors))
     ion_color = sns.color_palette("Set2")[3]
     non_ion_color = sns.color_palette("Set2")[0]
-    bar_colors = [ion_color] * len(ion_types) + ["white"] + [non_ion_color] * len(non_ion_types)
-    ax_burial.bar(x, values, color=bar_colors, edgecolor="gray", linewidth=0.5)
-    ax_burial.set_xticks(x)
-    ax_burial.set_xticklabels(labels, rotation=45, ha="right")
-    ax_burial.set_ylabel(f"% Buried  (frac. acc. ≤ {burial_threshold})")
-    ax_burial.set_title("Burial Propensity: Ionizable vs Non-Ionizable Residues")
-    ax_burial.legend(
-        handles=[Patch(facecolor=ion_color, edgecolor="gray", label="Ionizable"),
-                 Patch(facecolor=non_ion_color, edgecolor="gray", label="Non-ionizable")],
-        loc="upper left", fontsize=8, framealpha=0.8)
-    for i, (lbl, val) in enumerate(zip(labels, values)):
-        if lbl:
-            ax_burial.text(i, val + 1.0, f"{val:.0f}%", ha="center", va="bottom", fontsize=6.5)
 
-    # Panel 3: pKa shift vs accessibility (scatter + histogram)
-    all_frac = []
-    for rt in order:
-        subset = [(r["frac_acc_num"], r["pKa_shift_num"])
-                  for r in residue_data
-                  if r["restype"] == rt and r["pKa_shift_num"] is not None
-                  and r["frac_acc_num"] is not None]
-        if not subset:
-            continue
-        xs, ys = zip(*subset)
-        ax_scatter.scatter(xs, ys, label=rt, alpha=0.5, s=12,
-                           color=palette[rt], edgecolors="none")
-        all_frac.extend(xs)
-    ax_scatter.axhline(0, color="gray", linestyle="--", linewidth=0.8, zorder=0)
-    ax_scatter.axvline(burial_threshold, color="red", linestyle=":", linewidth=0.8,
-                       alpha=0.6, label=f"burial cutoff ({burial_threshold})")
-    ax_scatter.set_ylabel("pKa shift  (pKa − pKa$_0$)")
-    ax_scatter.set_title("pKa Shift vs Fractional Solvent Accessibility")
-    ax_scatter.legend(fontsize=7, ncol=2, loc="upper right", framealpha=0.8)
-    ax_scatter.set_xticklabels([])
-
-    bins = np.arange(0, max(all_frac) + 0.1, 0.1)
-    ax_hist.hist(all_frac, bins=bins, color="steelblue", edgecolor="white", linewidth=0.5)
-    ax_hist.axvline(burial_threshold, color="red", linestyle=":", linewidth=0.8, alpha=0.6)
-    ax_hist.set_xlabel("Fractional Solvent Accessibility")
-    ax_hist.set_ylabel("Count")
-    ax_hist.set_xlim(ax_scatter.get_xlim())
-
-    out1 = os.path.join(outdir, FIG1_NAME)
-    fig1.savefig(out1, dpi=dpi, bbox_inches="tight")
-    print(f"Saved {out1}")
-    plt.close(fig1)
-
-    # ── Figure 2: Protein charge analysis (1x3) ─────────────────────────────
+    # ── Figure 1: Protein charge analysis (1x3) ─────────────────────────────
     charge_col = f"net_charge_pH{int(target_ph)}"
     fig2, axes2 = plt.subplots(1, 3, figsize=(18, 5.5))
     fig2.subplots_adjust(wspace=0.32, left=0.05, right=0.97, top=0.90, bottom=0.15)
@@ -722,6 +633,200 @@ def run_plot(outdir, topdir, target_ph, burial_threshold, dpi):
     fig2.savefig(out2, dpi=dpi, bbox_inches="tight")
     print(f"Saved {out2}")
     plt.close(fig2)
+
+    # ── Figure 3: pKa shift + energy comparison (2 rows × 3 columns) ─────
+    for r in residue_data:
+        if r["pKa_shift_num"] is not None and r["restype"] in IONIZABLE_RES:
+            if r["restype"] in ACIDS:
+                r["energy"] = r["pKa_shift_num"] * RT_LN10
+            else:
+                r["energy"] = r["pKa_shift_num"] * (-RT_LN10)
+        else:
+            r["energy"] = None
+
+    fig3 = plt.figure(figsize=(18, 13))
+
+    gs_top = gridspec.GridSpec(2, 3, height_ratios=[3, 1],
+                               hspace=0.05, wspace=0.32,
+                               left=0.05, right=0.97, top=0.97, bottom=0.55)
+    gs_bot = gridspec.GridSpec(2, 2, height_ratios=[3, 1],
+                               hspace=0.05, wspace=0.32,
+                               left=0.05, right=0.97, top=0.47, bottom=0.05)
+
+    # ── Top row: pKa shift panels ──────────────────────────────────────
+    ax_pka_violin = fig3.add_subplot(gs_top[0:2, 0])
+    ax_pka_burial = fig3.add_subplot(gs_top[0:2, 1])
+    ax_pka_scatter = fig3.add_subplot(gs_top[0, 2])
+    ax_pka_fhist = fig3.add_subplot(gs_top[1, 2], sharex=ax_pka_scatter)
+
+    # Top Panel 1: pKa shift violin
+    pka_plot_data = [(r["restype"], r["pKa_shift_num"])
+                     for r in residue_data if r["pKa_shift_num"] is not None]
+    pka_types_present = set(d[0] for d in pka_plot_data)
+    pka_order = [rt for rt in IONIZABLE_ORDER if rt in pka_types_present]
+    pka_arrays = [np.array([s for t, s in pka_plot_data if t == rt]) for rt in pka_order]
+
+    parts_p = ax_pka_violin.violinplot(pka_arrays, positions=range(len(pka_order)),
+                                        showmeans=False, showmedians=False, showextrema=False)
+    for i, pc in enumerate(parts_p["bodies"]):
+        pc.set_facecolor(palette[pka_order[i]])
+        pc.set_alpha(0.7)
+    ax_pka_violin.boxplot(pka_arrays, positions=range(len(pka_order)), widths=0.15,
+                           patch_artist=True,
+                           boxprops=dict(facecolor="white", linewidth=0.8),
+                           medianprops=dict(color="black", linewidth=1.2),
+                           whiskerprops=dict(linewidth=0.8),
+                           capprops=dict(linewidth=0.8),
+                           flierprops=dict(marker=".", markersize=2, alpha=0.4))
+    ax_pka_violin.axhline(0, color="gray", linestyle="--", linewidth=0.8, zorder=0)
+    ax_pka_violin.set_xticks(range(len(pka_order)))
+    ax_pka_violin.set_xticklabels(pka_order)
+    ax_pka_violin.set_ylabel("pKa shift  (pKa − pKa$_0$)")
+    ax_pka_violin.set_title("pKa Shift Distribution by Ionizable Residue Type")
+    for i, rt in enumerate(pka_order):
+        n = sum(1 for t, _ in pka_plot_data if t == rt)
+        ax_pka_violin.text(i, ax_pka_violin.get_ylim()[1] * 0.95, f"n={n}",
+                            ha="center", va="top", fontsize=7, color="gray")
+
+    # Top Panel 2: Burial propensity bars
+    ion_types3 = sorted([rt for rt in IONIZABLE_ORDER if rt in burial_pct],
+                        key=lambda rt: burial_pct.get(rt, 0), reverse=True)
+    non_ion_types3 = sorted([rt for rt in NON_IONIZABLE_ORDER if rt in burial_pct],
+                            key=lambda rt: burial_pct.get(rt, 0), reverse=True)
+    labels3 = ion_types3 + [""] + non_ion_types3
+    values3 = ([burial_pct.get(rt, 0) for rt in ion_types3] + [0] +
+               [burial_pct.get(rt, 0) for rt in non_ion_types3])
+    x3 = np.arange(len(labels3))
+    bar_colors3 = ([ion_color] * len(ion_types3) + ["white"] +
+                   [non_ion_color] * len(non_ion_types3))
+    ax_pka_burial.bar(x3, values3, color=bar_colors3, edgecolor="gray", linewidth=0.5)
+    ax_pka_burial.set_xticks(x3)
+    ax_pka_burial.set_xticklabels(labels3, rotation=45, ha="right")
+    ax_pka_burial.set_ylabel(f"% Buried  (frac. acc. ≤ {burial_threshold})")
+    ax_pka_burial.set_title("Burial Propensity: Ionizable vs Non-Ionizable Residues")
+    ax_pka_burial.legend(
+        handles=[Patch(facecolor=ion_color, edgecolor="gray", label="Ionizable"),
+                 Patch(facecolor=non_ion_color, edgecolor="gray", label="Non-ionizable")],
+        loc="upper left", fontsize=8, framealpha=0.8)
+    for i, (lbl, val) in enumerate(zip(labels3, values3)):
+        if lbl:
+            ax_pka_burial.text(i, val + 1.0, f"{val:.0f}%", ha="center",
+                               va="bottom", fontsize=6.5)
+
+    # Top Panel 3: pKa shift vs FSA scatter + histogram
+    all_frac_p = []
+    for rt in pka_order:
+        subset = [(r["frac_acc_num"], r["pKa_shift_num"])
+                  for r in residue_data
+                  if r["restype"] == rt and r["pKa_shift_num"] is not None
+                  and r["frac_acc_num"] is not None]
+        if not subset:
+            continue
+        xs, ys = zip(*subset)
+        ax_pka_scatter.scatter(xs, ys, label=rt, alpha=0.5, s=12,
+                               color=palette[rt], edgecolors="none")
+        all_frac_p.extend(xs)
+    ax_pka_scatter.axhline(0, color="gray", linestyle="--", linewidth=0.8, zorder=0)
+    ax_pka_scatter.axvline(burial_threshold, color="red", linestyle=":", linewidth=0.8,
+                           alpha=0.6, label=f"burial cutoff ({burial_threshold})")
+    ax_pka_scatter.set_ylabel("pKa shift  (pKa − pKa$_0$)")
+    ax_pka_scatter.set_title("pKa Shift vs Fractional Solvent Accessibility")
+    ax_pka_scatter.legend(fontsize=7, ncol=2, loc="upper right", framealpha=0.8)
+    ax_pka_scatter.tick_params(axis='x', labelbottom=False)
+
+    bins_p = np.arange(0, max(all_frac_p) + 0.1, 0.1)
+    ax_pka_fhist.hist(all_frac_p, bins=bins_p, color="steelblue",
+                       edgecolor="white", linewidth=0.5)
+    ax_pka_fhist.axvline(burial_threshold, color="red", linestyle=":", linewidth=0.8, alpha=0.6)
+    ax_pka_fhist.set_xlabel("Fractional Solvent Accessibility")
+    ax_pka_fhist.set_ylabel("Count")
+    ax_pka_fhist.set_xlim(ax_pka_scatter.get_xlim())
+
+    # ── Bottom row: Energy panels (2 columns) ────────────────────────
+    ax_e_violin = fig3.add_subplot(gs_bot[0:2, 0])
+    ax_e_scatter = fig3.add_subplot(gs_bot[0, 1])
+    ax_e_fhist = fig3.add_subplot(gs_bot[1, 1], sharex=ax_e_scatter)
+
+    # Bottom Panel 1: Energy violin
+    e_plot_data = [(r["restype"], r["energy"])
+                   for r in residue_data if r["energy"] is not None]
+    e_types_present = set(d[0] for d in e_plot_data)
+    e_order = [rt for rt in IONIZABLE_ORDER if rt in e_types_present]
+    e_arrays = [np.array([e for t, e in e_plot_data if t == rt]) for rt in e_order]
+
+    parts3 = ax_e_violin.violinplot(e_arrays, positions=range(len(e_order)),
+                                     showmeans=False, showmedians=False, showextrema=False)
+    for i, pc in enumerate(parts3["bodies"]):
+        pc.set_facecolor(palette[e_order[i]])
+        pc.set_alpha(0.7)
+    ax_e_violin.boxplot(e_arrays, positions=range(len(e_order)), widths=0.15,
+                         patch_artist=True,
+                         boxprops=dict(facecolor="white", linewidth=0.8),
+                         medianprops=dict(color="black", linewidth=1.2),
+                         whiskerprops=dict(linewidth=0.8),
+                         capprops=dict(linewidth=0.8),
+                         flierprops=dict(marker=".", markersize=2, alpha=0.4))
+    ax_e_violin.axhline(0, color="gray", linestyle="--", linewidth=0.8, zorder=0)
+    e_ylim = ax_e_violin.get_ylim()
+    ax_e_violin.axhspan(0, e_ylim[1], color="red", alpha=0.06, zorder=0)
+    ax_e_violin.axhspan(e_ylim[0], 0, color="green", alpha=0.06, zorder=0)
+    ax_e_violin.annotate("↑ Destabilized", xy=(0.02, 0.95), xycoords="axes fraction",
+                          ha="left", va="top", fontsize=11, fontweight="bold", color="firebrick")
+    ax_e_violin.annotate("↓ Stabilized", xy=(0.02, 0.05), xycoords="axes fraction",
+                          ha="left", va="bottom", fontsize=11, fontweight="bold", color="darkgreen")
+    ax_e_violin.set_ylim(e_ylim)
+    ax_e_violin.set_xticks(range(len(e_order)))
+    ax_e_violin.set_xticklabels(e_order)
+    ax_e_violin.set_ylabel("ΔΔG (kcal/mol)")
+    ax_e_violin.set_title("pKa Shift Energy by Ionizable Residue Type")
+    for i, rt in enumerate(e_order):
+        n = sum(1 for t, _ in e_plot_data if t == rt)
+        ax_e_violin.text(i, e_ylim[1] * 0.95, f"n={n}",
+                          ha="center", va="top", fontsize=7, color="gray")
+
+    # Bottom Panel 2: Energy vs FSA scatter + histogram
+    all_frac_e = []
+    for rt in e_order:
+        subset = [(r["frac_acc_num"], r["energy"])
+                  for r in residue_data
+                  if r["restype"] == rt and r["energy"] is not None
+                  and r["frac_acc_num"] is not None]
+        if not subset:
+            continue
+        xs, ys = zip(*subset)
+        ax_e_scatter.scatter(xs, ys, label=rt, alpha=0.5, s=12,
+                             color=palette[rt], edgecolors="none")
+        all_frac_e.extend(xs)
+    ax_e_scatter.axhline(0, color="gray", linestyle="--", linewidth=0.8, zorder=0)
+    es_ylim = ax_e_scatter.get_ylim()
+    ax_e_scatter.axhspan(0, es_ylim[1], color="red", alpha=0.06, zorder=0)
+    ax_e_scatter.axhspan(es_ylim[0], 0, color="green", alpha=0.06, zorder=0)
+    ax_e_scatter.annotate("↑ Destabilized", xy=(0.02, 0.95),
+                           xycoords="axes fraction", ha="left", va="top",
+                           fontsize=11, fontweight="bold", color="firebrick")
+    ax_e_scatter.annotate("↓ Stabilized", xy=(0.02, 0.05),
+                           xycoords="axes fraction", ha="left", va="bottom",
+                           fontsize=11, fontweight="bold", color="darkgreen")
+    ax_e_scatter.set_ylim(es_ylim)
+    ax_e_scatter.axvline(burial_threshold, color="red", linestyle=":", linewidth=0.8,
+                         alpha=0.6, label=f"burial cutoff ({burial_threshold})")
+    ax_e_scatter.set_ylabel("ΔΔG (kcal/mol)")
+    ax_e_scatter.set_title("pKa Shift Energy vs Fractional Solvent Accessibility")
+    ax_e_scatter.legend(fontsize=7, ncol=2, loc="upper right", framealpha=0.8)
+    ax_e_scatter.tick_params(axis='x', labelbottom=False)
+
+    e_frac_bins = np.arange(0, max(all_frac_e) + 0.1, 0.1)
+    ax_e_fhist.hist(all_frac_e, bins=e_frac_bins, color="steelblue",
+                     edgecolor="white", linewidth=0.5)
+    ax_e_fhist.axvline(burial_threshold, color="red", linestyle=":", linewidth=0.8, alpha=0.6)
+    ax_e_fhist.set_xlabel("Fractional Solvent Accessibility")
+    ax_e_fhist.set_ylabel("Count")
+    ax_e_fhist.set_xlim(ax_e_scatter.get_xlim())
+
+    out3 = os.path.join(outdir, FIG3_NAME)
+    fig3.savefig(out3, dpi=dpi, bbox_inches="tight")
+    print(f"Saved {out3}")
+    plt.close(fig3)
 
 
 # ── CLI ──────────────────────────────────────────────────────────────────────
