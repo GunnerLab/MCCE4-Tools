@@ -3,8 +3,9 @@
 Combined MCCE analysis: buried-residue statistics, feature extraction, and plotting.
 
 Usage:
-    python analyze_mcce_proteins.py                  # analyze + write CSVs + print summary
-    python analyze_mcce_proteins.py --plot           # plot only (requires prior analysis run)
+    python analyze_mcce_proteins.py                  # analyze + plot (default)
+    python analyze_mcce_proteins.py --no-plot        # analyze only, skip figures
+    python analyze_mcce_proteins.py --plot-only      # regenerate figures from existing CSVs
     python analyze_mcce_proteins.py --ph 4.0         # analyze at a different pH
     python analyze_mcce_proteins.py -o results       # write all output to results/
 """
@@ -872,8 +873,12 @@ def main():
         help="Include non-standard residues (ligands, metals, solvents)"
     )
     parser.add_argument(
-        "--plot", action="store_true", default=False,
-        help="Generate figures (requires CSVs from a prior analysis run, or run without --plot first)"
+        "--plot-only", action="store_true", default=False,
+        help="Skip analysis, only regenerate figures from existing CSVs"
+    )
+    parser.add_argument(
+        "--no-plot", action="store_true", default=False,
+        help="Run analysis only, skip figure generation"
     )
     parser.add_argument(
         "--dpi", type=int, default=200,
@@ -881,11 +886,11 @@ def main():
     )
     args = parser.parse_args()
 
-    if args.plot:
-        run_plot(args.outdir, args.directory, args.ph, args.burial_threshold, args.dpi)
-    else:
+    if not args.plot_only:
         run_analysis(args.directory, args.outdir, args.ph, args.burial_threshold,
                      args.top_proteins, args.include_ntg, args.all_residues)
+    if not args.no_plot:
+        run_plot(args.outdir, args.directory, args.ph, args.burial_threshold, args.dpi)
 
 
 if __name__ == "__main__":
