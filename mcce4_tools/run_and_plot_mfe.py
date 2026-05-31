@@ -32,6 +32,8 @@ parser = argparse.ArgumentParser(
   python run_and_plot_mfe.py -u pH -p 7 -c 0.05 -r {" ".join(EXAMPLE_RESIDUES)}
   python run_and_plot_mfe.py -ignore-terms "vdw0,dsol,pH&pK0,Eh&Em0"
   python run_and_plot_mfe.py -o my_output_dir
+  python run_and_plot_mfe.py -pref-labels "Favors Neutral" "Favors Ionized"
+  python run_and_plot_mfe.py -pref-labels none none
 """,
 )
 parser.add_argument("-u", "--unit", choices=["pH", "meV", "Kcal"], default="Kcal",
@@ -48,6 +50,10 @@ parser.add_argument("-ignore-terms", type=str, default="",
                          f"Available terms: {', '.join(ALL_TERMS)}")
 parser.add_argument("-o", "--outdir", type=str, default="mfe_plots",
                     help="Output directory for figures (default: mfe_plots)")
+parser.add_argument("-pref-labels", nargs=2, metavar=("ABOVE", "BELOW"),
+                    default=["Neutral", "Ionized"],
+                    help="Labels for above-zero and below-zero regions "
+                         "(default: Neutral Ionized). Use 'none' to disable.")
 args = parser.parse_args()
 
 MFE_COLUMNS = {
@@ -85,7 +91,7 @@ def parse_mfe_line(line):
 
 def run_mfe(res_id):
     """Run mfe.py and extract the selected unit from the MFE term table."""
-    cmd = ["mfe.py", res_id, "-p", str(args.pH), "-c", str(args.cut)]
+    cmd = ["mfe_gr.py", res_id, "-p", str(args.pH), "-c", str(args.cut)]
     try:
         result = subprocess.check_output(cmd, text=True)
     except subprocess.CalledProcessError as err:
@@ -158,7 +164,8 @@ ax.set_ylabel(f"MFE Contribution ({args.unit})")
 ax.set_xlabel("Site")
 ax.tick_params(axis='x', rotation=0)
 ax.grid(axis='y', linestyle=':', alpha=0.5)
-ax.legend(title="Terms", bbox_to_anchor=(1.02, 1), loc='upper left', frameon=False)
+ax.legend(title="Terms", bbox_to_anchor=(0.5, -0.12), loc='upper center',
+          ncol=len(term_order), frameon=False)
 
 for spine in ("top", "right"):
     ax.spines[spine].set_visible(False)
@@ -173,6 +180,25 @@ for p in ax.patches:
                 fontsize=8, rotation=90,
                 xytext=(0, 5 if val > 0 else -5),
                 textcoords='offset points')
+
+above_label, below_label = args.pref_labels
+show_pref = not (above_label.lower() == "none" and below_label.lower() == "none")
+if show_pref:
+    box_common = dict(boxstyle="round,pad=0.4", linewidth=1.2)
+    if above_label.lower() != "none":
+        for x, ha in ((0.01, "left"), (0.99, "right")):
+            ax.text(x, 0.97, f"▲ {above_label}",
+                    transform=ax.transAxes,
+                    ha=ha, va="top", fontsize=11, fontweight="bold",
+                    color="#85231c",
+                    bbox=dict(facecolor="#f8d7da", edgecolor="#85231c", alpha=0.85, **box_common))
+    if below_label.lower() != "none":
+        for x, ha in ((0.01, "left"), (0.99, "right")):
+            ax.text(x, 0.03, f"▼ {below_label}",
+                    transform=ax.transAxes,
+                    ha=ha, va="bottom", fontsize=11, fontweight="bold",
+                    color="#2a6e2a",
+                    bbox=dict(facecolor="#d4edda", edgecolor="#2a6e2a", alpha=0.85, **box_common))
 
 for i in range(len(df) - 1):
     ax.axvline(i + 0.5, color='grey', linestyle='--', alpha=0.3)

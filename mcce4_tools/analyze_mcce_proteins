@@ -120,7 +120,7 @@ def calc_pi(ph_values, net_charges):
 
 def parse_pk_out(filepath):
     residues = []
-    with open(filepath) as f:
+    with open(filepath, errors="replace") as f:
         f.readline()
         for line in f:
             line = line.rstrip()
