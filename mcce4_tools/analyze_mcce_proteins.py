@@ -13,6 +13,7 @@ import argparse
 import csv
 import os
 import re
+import shutil
 import sys
 from collections import defaultdict
 
@@ -184,6 +185,46 @@ class _Tee:
             s.flush()
 
 
+def _init_dipole():
+    """Try to import MCCE4 dipole modules. Returns (parse, compute, np) or None."""
+    try:
+        mcce_path = shutil.which("mcce")
+        if not mcce_path:
+            return None
+        mcce_bin_dir = os.path.normpath(
+            os.path.join(os.path.dirname(os.path.realpath(mcce_path)), "..", "MCCE_bin"))
+        if mcce_bin_dir not in sys.path:
+            sys.path.insert(0, mcce_bin_dir)
+        from mcce_dipole.parsers import parse_step2_pdb, parse_head3lst, parse_fort38
+        from mcce_dipole.compute import compute_from_ensemble
+        import numpy as np
+        return parse_step2_pdb, parse_head3lst, parse_fort38, compute_from_ensemble, np
+    except (ImportError, TypeError):
+        return None
+
+
+def _compute_dipole(pdb_dir, target_ph, dipole_funcs):
+    """Compute backbone, ionizable, and full dipole magnitudes (Debye) at target_ph."""
+    parse_step2_pdb, parse_head3lst, parse_fort38, compute_from_ensemble, np = dipole_funcs
+    step2 = os.path.join(pdb_dir, "step2_out.pdb")
+    head3 = os.path.join(pdb_dir, "head3.lst")
+    fort38 = os.path.join(pdb_dir, "fort.38")
+    if not all(os.path.isfile(f) for f in [step2, head3, fort38]):
+        return None, None, None
+    try:
+        conformers, _ = parse_step2_pdb(step2)
+        head3_data = parse_head3lst(head3)
+        ph_values, conf_ids, occupancies = parse_fort38(fort38)
+        results = compute_from_ensemble(conformers, head3_data, ph_values, conf_ids, occupancies)
+        ph_idx = int(np.argmin(np.abs(results["ph_values"] - target_ph)))
+        bb = float(np.linalg.norm(results["backbone_dipole"][ph_idx]))
+        ion = float(np.linalg.norm(results["ionizable_dipole"][ph_idx]))
+        full = float(np.linalg.norm(results["full_dipole"][ph_idx]))
+        return bb, ion, full
+    except Exception:
+        return None, None, None
+
+
 # ── Analysis (extract + buried stats + summary) ─────────────────────────────
 
 def run_analysis(topdir, outdir, target_ph, burial_threshold, top_n,
@@ -194,6 +235,13 @@ def run_analysis(topdir, outdir, target_ph, burial_threshold, top_n,
     log_file = open(log_path, "w")
     original_stdout = sys.stdout
     sys.stdout = _Tee(original_stdout, log_file)
+
+    dipole_funcs = _init_dipole()
+    if dipole_funcs:
+        print("Dipole computation enabled (ms_dipole found)")
+    else:
+        print("Warning: ms_dipole not available, skipping dipole features")
+
     subdirs = list_pdb_dirs(topdir)
 
     exclude_ntg = not include_ntg
@@ -281,8 +329,14 @@ def run_analysis(topdir, outdir, target_ph, burial_threshold, top_n,
         max_abs_shift = max(abs(s) for s in pka_shifts) if pka_shifts else None
         n_large_shift = sum(1 for s in pka_shifts if abs(s) > 2.0)
 
+        # ── Dipole ──
+        if dipole_funcs:
+            bb_dip, ion_dip, full_dip = _compute_dipole(pdb_dir, target_ph, dipole_funcs)
+        else:
+            bb_dip, ion_dip, full_dip = None, None, None
+
         charge_col = f"net_charge_pH{int(target_ph)}"
-        protein_rows.append({
+        row = {
             "pdb": pdb,
             "total_sas": f"{total_sas:.2f}",
             charge_col: f"{net_charge:.2f}" if net_charge is not None else "",
@@ -292,7 +346,12 @@ def run_analysis(topdir, outdir, target_ph, burial_threshold, top_n,
             "mean_pKa_shift": f"{mean_shift:.3f}" if mean_shift is not None else "",
             "max_abs_pKa_shift": f"{max_abs_shift:.3f}" if max_abs_shift is not None else "",
             "n_large_shift_gt2": n_large_shift,
-        })
+        }
+        if dipole_funcs:
+            row["backbone_dipole_D"] = f"{bb_dip:.2f}" if bb_dip is not None else ""
+            row["ionizable_dipole_D"] = f"{ion_dip:.2f}" if ion_dip is not None else ""
+            row["full_dipole_D"] = f"{full_dip:.2f}" if full_dip is not None else ""
+        protein_rows.append(row)
 
     # ── Write CSVs ───────────────────────────────────────────────────────────
     if protein_rows:
@@ -407,6 +466,33 @@ def run_analysis(topdir, outdir, target_ph, burial_threshold, top_n,
         print(f"\n  Most positive: ", end="")
         for c, pdb in sorted(charges_with_pdb, reverse=True)[:3]:
             print(f"{pdb} ({c:+.1f})  ", end="")
+        print()
+
+    # Dipole summary
+    dipole_with_pdb = [(float(r["full_dipole_D"]), r["pdb"])
+                       for r in protein_rows if r.get("full_dipole_D")]
+    if dipole_with_pdb:
+        dip_vals = [d for d, _ in dipole_with_pdb]
+        mean_dip = sum(dip_vals) / len(dip_vals)
+        bb_vals = [float(r["backbone_dipole_D"]) for r in protein_rows if r.get("backbone_dipole_D")]
+        ion_vals = [float(r["ionizable_dipole_D"]) for r in protein_rows if r.get("ionizable_dipole_D")]
+        print(f"\n{'=' * 70}")
+        print(f"Dipole Moment at pH {target_ph}  (Debye)")
+        print(f"{'=' * 70}")
+        if bb_vals:
+            print(f"  Backbone:   min={min(bb_vals):.1f}  max={max(bb_vals):.1f}  "
+                  f"mean={sum(bb_vals)/len(bb_vals):.1f}")
+        if ion_vals:
+            print(f"  Ionizable:  min={min(ion_vals):.1f}  max={max(ion_vals):.1f}  "
+                  f"mean={sum(ion_vals)/len(ion_vals):.1f}")
+        print(f"  Full:       min={min(dip_vals):.1f}  max={max(dip_vals):.1f}  "
+              f"mean={mean_dip:.1f}")
+        print(f"\n  Largest dipole:   ", end="")
+        for d, pdb in sorted(dipole_with_pdb, reverse=True)[:3]:
+            print(f"{pdb} ({d:.1f} D)  ", end="")
+        print(f"\n  Smallest dipole:  ", end="")
+        for d, pdb in sorted(dipole_with_pdb)[:3]:
+            print(f"{pdb} ({d:.1f} D)  ", end="")
         print()
 
     # Buried residue tables
@@ -569,12 +655,19 @@ def run_plot(outdir, topdir, target_ph, burial_threshold, dpi):
     ion_color = sns.color_palette("Set2")[3]
     non_ion_color = sns.color_palette("Set2")[0]
 
-    # ── Figure 1: Protein charge analysis (1x3) ─────────────────────────────
+    # ── Figure 1: Protein charge & dipole analysis ───────────────────────────
     charge_col = f"net_charge_pH{int(target_ph)}"
-    fig2, axes2 = plt.subplots(1, 3, figsize=(18, 5.5))
-    fig2.subplots_adjust(wspace=0.32, left=0.05, right=0.97, top=0.90, bottom=0.15)
+    has_dipole = any(r.get("full_dipole_D") for r in protein_data)
+    if has_dipole:
+        fig2, axes2 = plt.subplots(2, 2, figsize=(14, 10))
+        fig2.subplots_adjust(wspace=0.30, hspace=0.35, left=0.07, right=0.97,
+                             top=0.94, bottom=0.08)
+        axes2 = axes2.flatten()
+    else:
+        fig2, axes2 = plt.subplots(1, 3, figsize=(18, 5.5))
+        fig2.subplots_adjust(wspace=0.32, left=0.05, right=0.97, top=0.90, bottom=0.15)
 
-    # Panel 1: pI histogram
+    # Panel A: pI histogram
     pis = [float(r["pI"]) for r in protein_data if r.get("pI")]
     axes2[0].hist(pis, bins=np.arange(2, 15, 0.5), color="teal",
                   edgecolor="white", linewidth=0.5, alpha=0.85)
@@ -586,6 +679,8 @@ def run_plot(outdir, topdir, target_ph, burial_threshold, dpi):
     axes2[0].set_ylabel("Number of Proteins")
     axes2[0].set_title("Distribution of Isoelectric Points")
     axes2[0].legend(fontsize=8, framealpha=0.8)
+    axes2[0].text(-0.12, 1.05, "A", transform=axes2[0].transAxes,
+                  fontsize=16, fontweight="bold", va="top")
 
     # Panel 2: Net charge histogram
     charges = [float(r[charge_col]) for r in protein_data if r.get(charge_col)]
@@ -602,6 +697,8 @@ def run_plot(outdir, topdir, target_ph, burial_threshold, dpi):
     axes2[1].set_ylabel("Number of Proteins")
     axes2[1].set_title(f"Distribution of Net Charge (pH {target_ph:.0f})")
     axes2[1].legend(fontsize=8, framealpha=0.8)
+    axes2[1].text(-0.12, 1.05, "B", transform=axes2[1].transAxes,
+                  fontsize=16, fontweight="bold", va="top")
 
     # Panel 3: pI vs Net Charge scatter
     pi_vals, crg_vals, pdb_labels = [], [], []
@@ -622,6 +719,8 @@ def run_plot(outdir, topdir, target_ph, burial_threshold, dpi):
     axes2[2].set_ylabel(f"Net Charge at pH {target_ph:.0f}")
     axes2[2].set_title(f"Net Charge vs pI (pH {target_ph:.0f})")
     axes2[2].legend(fontsize=8, framealpha=0.8)
+    axes2[2].text(-0.12, 1.05, "C", transform=axes2[2].transAxes,
+                  fontsize=16, fontweight="bold", va="top")
     crg_arr = np.array(crg_vals)
     for q in [0.02, 0.98]:
         cutoff = np.quantile(crg_arr, q)
@@ -629,6 +728,33 @@ def run_plot(outdir, topdir, target_ph, burial_threshold, dpi):
             if (q < 0.5 and crg <= cutoff) or (q > 0.5 and crg >= cutoff):
                 axes2[2].annotate(lbl, (pi, crg), fontsize=5.5, alpha=0.7,
                                   xytext=(4, 4), textcoords="offset points")
+
+    # Panel 4: Dipole moment histogram (if data available)
+    if has_dipole:
+        full_dips = [float(r["full_dipole_D"]) for r in protein_data
+                     if r.get("full_dipole_D")]
+        bb_dips = [float(r["backbone_dipole_D"]) for r in protein_data
+                   if r.get("backbone_dipole_D")]
+        ion_dips = [float(r["ionizable_dipole_D"]) for r in protein_data
+                    if r.get("ionizable_dipole_D")]
+        dip_max = max(full_dips) if full_dips else 100
+        dip_bins = np.arange(0, dip_max + 20, 20)
+        axes2[3].hist(full_dips, bins=dip_bins, color="mediumpurple",
+                      edgecolor="white", linewidth=0.5, alpha=0.85, label="Full protein")
+        axes2[3].hist(ion_dips, bins=dip_bins, color="salmon",
+                      edgecolor="white", linewidth=0.5, alpha=0.6, label="Ionizable")
+        axes2[3].hist(bb_dips, bins=dip_bins, color="steelblue",
+                      edgecolor="white", linewidth=0.5, alpha=0.6, label="Backbone")
+        if full_dips:
+            mean_full = np.mean(full_dips)
+            axes2[3].axvline(mean_full, color="orange", linestyle="--", linewidth=1,
+                             alpha=0.7, label=f"mean full = {mean_full:.0f} D")
+        axes2[3].set_xlabel("Dipole Moment (Debye)")
+        axes2[3].set_ylabel("Number of Proteins")
+        axes2[3].set_title(f"Dipole Moment Distribution (pH {target_ph:.0f})")
+        axes2[3].legend(fontsize=8, framealpha=0.8)
+        axes2[3].text(-0.12, 1.05, "D", transform=axes2[3].transAxes,
+                      fontsize=16, fontweight="bold", va="top")
 
     out2 = os.path.join(outdir, FIG2_NAME)
     fig2.savefig(out2, dpi=dpi, bbox_inches="tight")
@@ -684,6 +810,8 @@ def run_plot(outdir, topdir, target_ph, burial_threshold, dpi):
     ax_pka_violin.set_xticklabels(pka_order)
     ax_pka_violin.set_ylabel("pKa shift  (pKa − pKa$_0$)")
     ax_pka_violin.set_title("pKa Shift Distribution by Ionizable Residue Type")
+    ax_pka_violin.text(-0.10, 1.05, "A", transform=ax_pka_violin.transAxes,
+                        fontsize=16, fontweight="bold", va="top")
     for i, rt in enumerate(pka_order):
         n = sum(1 for t, _ in pka_plot_data if t == rt)
         ax_pka_violin.text(i, ax_pka_violin.get_ylim()[1] * 0.95, f"n={n}",
@@ -705,6 +833,8 @@ def run_plot(outdir, topdir, target_ph, burial_threshold, dpi):
     ax_pka_burial.set_xticklabels(labels3, rotation=45, ha="right")
     ax_pka_burial.set_ylabel(f"% Buried  (frac. acc. ≤ {burial_threshold})")
     ax_pka_burial.set_title("Burial Propensity: Ionizable vs Non-Ionizable Residues")
+    ax_pka_burial.text(-0.10, 1.05, "B", transform=ax_pka_burial.transAxes,
+                        fontsize=16, fontweight="bold", va="top")
     ax_pka_burial.legend(
         handles=[Patch(facecolor=ion_color, edgecolor="gray", label="Ionizable"),
                  Patch(facecolor=non_ion_color, edgecolor="gray", label="Non-ionizable")],
@@ -732,6 +862,8 @@ def run_plot(outdir, topdir, target_ph, burial_threshold, dpi):
                            alpha=0.6, label=f"burial cutoff ({burial_threshold})")
     ax_pka_scatter.set_ylabel("pKa shift  (pKa − pKa$_0$)")
     ax_pka_scatter.set_title("pKa Shift vs Fractional Solvent Accessibility")
+    ax_pka_scatter.text(-0.12, 1.10, "C", transform=ax_pka_scatter.transAxes,
+                         fontsize=16, fontweight="bold", va="top")
     ax_pka_scatter.legend(fontsize=7, ncol=2, loc="upper right", framealpha=0.8)
     ax_pka_scatter.tick_params(axis='x', labelbottom=False)
 
@@ -780,6 +912,8 @@ def run_plot(outdir, topdir, target_ph, burial_threshold, dpi):
     ax_e_violin.set_xticklabels(e_order)
     ax_e_violin.set_ylabel("ΔΔG (kcal/mol)")
     ax_e_violin.set_title("pKa Shift Energy by Ionizable Residue Type")
+    ax_e_violin.text(-0.10, 1.05, "D", transform=ax_e_violin.transAxes,
+                      fontsize=16, fontweight="bold", va="top")
     for i, rt in enumerate(e_order):
         n = sum(1 for t, _ in e_plot_data if t == rt)
         ax_e_violin.text(i, e_ylim[1] * 0.95, f"n={n}",
@@ -813,6 +947,8 @@ def run_plot(outdir, topdir, target_ph, burial_threshold, dpi):
                          alpha=0.6, label=f"burial cutoff ({burial_threshold})")
     ax_e_scatter.set_ylabel("ΔΔG (kcal/mol)")
     ax_e_scatter.set_title("pKa Shift Energy vs Fractional Solvent Accessibility")
+    ax_e_scatter.text(-0.12, 1.10, "E", transform=ax_e_scatter.transAxes,
+                       fontsize=16, fontweight="bold", va="top")
     ax_e_scatter.legend(fontsize=7, ncol=2, loc="upper right", framealpha=0.8)
     ax_e_scatter.tick_params(axis='x', labelbottom=False)
 
