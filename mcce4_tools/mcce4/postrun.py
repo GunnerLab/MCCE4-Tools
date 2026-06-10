@@ -110,7 +110,8 @@ def get_bad_pks(pko: Path) -> Tuple[list, list, list]:
                 curve.append(line[:10])
                 continue
             cols = line.split()
-            if len(cols) < 15:
+            # pK.out is a subset of pK_extended.out wiith only 3 cols
+            if len(cols) < 3:
                 oob.append((cols[0], cols[1]))
             try:
                 if float(cols[3]) >= HI_CHI:
