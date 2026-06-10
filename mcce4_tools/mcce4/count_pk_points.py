@@ -28,7 +28,10 @@ def count_all_pk_points(top_dir: Path, chunked_subdir_id: str = None, with_runs_
 
     counts_dict = defaultdict(int)
     for pk_fp in top_dir.glob(what):
-        for line in pk_fp.read_text().splitlines()[1:]:
+        lines = pk_fp.read_text().splitlines()
+        if not len(lines) > 1:
+            continue
+        for line in lines[1:]:
             # pK.out is a subset of pK_extended.out
             if len(line.split()) < 3:
                continue
