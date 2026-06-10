@@ -32,7 +32,7 @@ def count_all_pk_points(top_dir: Path, chunked_subdir_id: str = None, with_runs_
             lines = pk_fp.read_text().splitlines()
         except UnicodeDecodeError:
             # has bytes; non utf-8' chars example: 0|��        >14.0 
-            print("Corrupted pK.out in", pk_fp.parent.name)
+            print("Corrupted pK.out in", str(pk_fp.parent))
             continue
         if len(lines) <= 1:
             continue
