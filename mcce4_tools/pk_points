@@ -1,0 +1,14 @@
+#!/usr/bin/env python3
+
+"""
+Tool file: pk_points
+
+Codebase: /mcce4/count_pk_points.py
+"""
+import sys
+
+from mcce4.count_pk_points import cli
+
+
+if __name__ == "__main__":
+    sys.exit(cli())
