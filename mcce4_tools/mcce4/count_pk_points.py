@@ -34,7 +34,7 @@ def count_all_pk_points(top_dir: Path, chunked_subdir_id: str = None, with_runs_
             # has bytes; non utf-8' chars example: 0|��        >14.0 
             print("Corrupted pK.out in", pk_fp.parent.name)
             continue
-        if not len(lines) > 1:
+        if len(lines) <= 1:
             continue
         for line in lines[1:]:
             # pK.out is a subset of pK_extended.out
@@ -47,7 +47,7 @@ def count_all_pk_points(top_dir: Path, chunked_subdir_id: str = None, with_runs_
     print("Saving dict to text file:", str(out_fp))
     out_fp.write_text(pformat(counts_dict)+"\n")
     ptp(counts_dict)
-    print(f"Total pKa points in {out_fp.parent.name} runs: {sum(counts_dict.values()):,}")
+    print(f"Total pKa points in {out_fp.name} runs: {sum(counts_dict.values()):,}")
 
     return
 
