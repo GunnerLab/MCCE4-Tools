@@ -28,7 +28,12 @@ def count_all_pk_points(top_dir: Path, chunked_subdir_id: str = None, with_runs_
 
     counts_dict = defaultdict(int)
     for pk_fp in top_dir.glob(what):
-        lines = pk_fp.read_text().splitlines()
+        try:
+            lines = pk_fp.read_text().splitlines()
+        except UnicodeDecodeError:
+            # has bytes; non utf-8' chars example: 0|��        >14.0 
+            print("Corrupted pK.out in", pk_fp.parent.name)
+            continue
         if not len(lines) > 1:
             continue
         for line in lines[1:]:
