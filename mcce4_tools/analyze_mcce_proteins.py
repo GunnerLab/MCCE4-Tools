@@ -12,14 +12,13 @@ Usage:
 import argparse
 import csv
 import os
-import re
+from pathlib import Path
 import shutil
 import sys
 from collections import defaultdict
 
 
 # ── Constants ────────────────────────────────────────────────────────────────
-
 PKA0 = {
     "ASP": 4.75, "GLU": 4.75, "HIS": 6.98, "LYS": 10.4,
     "TYR": 10.20, "ARG": 12.5, "NTR": 8.00, "CTR": 3.75,
@@ -45,8 +44,6 @@ ACIDS = {"ASP", "GLU", "CTR", "TYR"}
 BASES = {"ARG", "HIS", "LYS", "NTR"}
 RT_LN10 = 1.364
 
-PDB_PATTERN = re.compile(r"^[0-9][A-Za-z0-9]{3}$")
-
 PROTEIN_CSV = "protein_features.csv"
 RESIDUE_CSV = "residue_features.csv"
 FIG2_NAME = "protein_charge_analysis.png"
@@ -55,12 +52,13 @@ LOG_NAME = "analysis.log"
 
 
 # ── Parsing helpers ──────────────────────────────────────────────────────────
-
-def list_pdb_dirs(topdir):
+def list_pdb_dirs(topdir:str, sentinel: str = "step2_out.pdb"):
+    """Using a sentinel file (any mcce run output file) allows
+    for unrestricted parent folder name, e.g. frame10.
+    """
     return sorted(
-        d for d in os.listdir(topdir)
-        if os.path.isdir(os.path.join(topdir, d)) and PDB_PATTERN.match(d)
-    )
+        fp.parent.name
+        for fp in Path(topdir).glob(f"*/{sentinel}"))
 
 
 def parse_acc_res(filepath):
@@ -982,43 +980,43 @@ def main():
     )
     parser.add_argument(
         "-d", "--directory", default=".",
-        help="Top-level directory containing PDB subdirectories (default: .)"
+        help="Top-level directory containing PDB subdirectories; default: %(default)s"
     )
     parser.add_argument(
         "-o", "--outdir", default="analysis_mcce_proteins",
-        help="Output directory for CSVs and figures (default: analysis_mcce_proteins)"
+        help="Output directory for CSVs and figures; default: %(default)s"
     )
     parser.add_argument(
         "--ph", type=float, default=7.0,
-        help="pH for net charge extraction (default: 7.0)"
+        help="pH for net charge extraction; default: %(default)s"
     )
     parser.add_argument(
         "-b", "--burial-threshold", type=float, default=0.20,
-        help="Fractional accessibility threshold for buried (default: 0.20)"
+        help="Fractional accessibility threshold for buried; default: %(default)s"
     )
     parser.add_argument(
         "-n", "--top-proteins", type=int, default=10,
-        help="Number of top proteins to show in ranking (default: 10)"
+        help="Number of top proteins to show in ranking; default: %(default)s"
     )
     parser.add_argument(
         "--include-ntg", action="store_true", default=False,
-        help="Include NTG (N-terminal, non-ionizable) entries (excluded by default)"
+        help="Include NTG (N-terminal, non-ionizable) entries; default: %(default)s"
     )
     parser.add_argument(
         "--all-residues", action="store_true", default=False,
-        help="Include non-standard residues (ligands, metals, solvents)"
+        help="Include non-standard residues (ligands, metals, solvents); default: %(default)s"
     )
     parser.add_argument(
         "--plot-only", action="store_true", default=False,
-        help="Skip analysis, only regenerate figures from existing CSVs"
+        help="Skip analysis, only regenerate figures from existing CSVs; default: %(default)s"
     )
     parser.add_argument(
         "--no-plot", action="store_true", default=False,
-        help="Run analysis only, skip figure generation"
+        help="Run analysis only, skip figure generation; default: %(default)s"
     )
     parser.add_argument(
         "--dpi", type=int, default=200,
-        help="Figure DPI (default: 200)"
+        help="Figure DPI; default: %(default)s"
     )
     args = parser.parse_args()
 

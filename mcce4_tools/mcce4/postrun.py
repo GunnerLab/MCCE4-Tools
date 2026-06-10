@@ -3,19 +3,17 @@
 """
 Module: postrun.py
 
-Provides basic diagnostics on sum_crg.out and pK.out data:
+Provides basic diagnostics on sum_crg.out and pK.out data
+in a tab-separated file 'postrun.bad':
    - Non-canonically charged residues;
    - Residues without curve fit or high chi^2 (>= 3).
    - Residues out-of-bounds, < first point, or > last point.
 Output:
   - Empty file run_dir/'postrun.ok' is created when no issues were found.
-  - Sample contents in run_dir/'postrun.bad' file (when all categories have data):
-
-    WARNING       :: Neutral ARG found in 'non canonical' list (@ point 7).
-    PROTDIR :: non canonical :: ARG+A0005_, ASP-A0018_
-    PROTDIR :: chi2 >= 3.0   :: LYS+A0033_, HIS+A0055_
-    PROTDIR :: no curve      :: TYR-A0023_
-    PROTDIR :: out_of_bounds: 1  :: [('TYR-A0053_', '>14.0')]
+  - Sample contents in run_dir/'postrun.bad' file:
+    run     category        count   value
+    1OTS    non_canonical   8       NTR+A0017_, CYS-A0085_, GLU-A0203_, GLU-A0414_, NTR+B0018_, GLU-B0203_, LYS+B0216_, GLU-B0414_
+    1OTS    out_of_bounds   152     Likely due to short (1 pts) titration; not listed
 """
 import argparse
 from collections import defaultdict
@@ -42,7 +40,8 @@ HI_CHI = 3.0
 
 
 def get_titr_info(df: pd.DataFrame) -> tuple:
-    """Return the titr type and df column name to use as titr point.
+    """Return a 3-tuple:
+       the titr type, column name to use as titr point, number of titr cols.
     """
     # determine which titr point (column) to use:
     cols = df.columns.to_list()
@@ -50,7 +49,7 @@ def get_titr_info(df: pd.DataFrame) -> tuple:
     if titr_type == "eh":
         # treated like single point titration;
         # assumed: eh titration run at at pH7:
-        return titr_type, cols[1]
+        return titr_type, cols[1], len(cols) - 1
 
     titr_col = ""
     # other cases:
@@ -62,7 +61,7 @@ def get_titr_info(df: pd.DataFrame) -> tuple:
     except ValueError:
         pass
 
-    return titr_type, titr_col
+    return titr_type, titr_col, len(cols) - 1
 
 
 def get_noncanonical(df: pd.DataFrame, titr_col: str = "") -> Tuple[list, bool]:
@@ -113,13 +112,16 @@ def get_bad_pks(pko: Path) -> Tuple[list, list, list]:
             cols = line.split()
             if len(cols) < 15:
                 oob.append((cols[0], cols[1]))
-            if float(cols[3]) >= HI_CHI:
-                chi.append(cols[0])
+            try:
+                if float(cols[3]) >= HI_CHI:
+                    chi.append(cols[0])
+            except IndexError:
+                pass
 
     return chi, curve, oob
 
 
-def get_postrun_report(run_dir: str, summary: dict = None) -> None:
+def get_postrun_report(run_dir: str, summary: dict = None) -> list:
     """Write a post step 4 run report into empty file 'postrun.ok'
     if the 'run_dir' folder was processed and found acceptable,
     or into file 'postrun.bad' which flags problematic conditions.
@@ -141,6 +143,10 @@ def get_postrun_report(run_dir: str, summary: dict = None) -> None:
         logger.critical("Not found: " + str(run_dir))
         sys.exit(1)
 
+    postrun_lst = []
+    dname = run_dir.name
+    print(f"Processing {dname}...")
+
     # check needed files:
     missing = []
     sumcrg = run_dir.joinpath("sum_crg.out")
@@ -153,90 +159,92 @@ def get_postrun_report(run_dir: str, summary: dict = None) -> None:
         logger.critical("Not found: " + str(pko))
         missing.append(pko.name)
 
-    dname = run_dir.name
-    # add dirname to each line to retain info if reports are collated:
-    dirname = f"{dname} :: "
-
     if missing:  # report
+        postrun_lst.append([dname, "missing", len(missing), ", ".join(ms for ms in missing)])
         if summary is not None:
             summary["missing_files"].append(dname)
+    else:
+        df = mciou.mcfile2df(sumcrg)
+        titr_type, titr_col, titr_points = get_titr_info(df)
+        too_many_msg = f"Likely due to short ({titr_points} pts) titration; not listed"
 
-        out_fp = run_dir.joinpath("postrun.bad")
-        out_fp.write_text(dirname + f"{'missing':18s}:: {missing}\n")
-        return
+        nc_out = []
+        if titr_col:
+            # Get non-canonically charged residues:
+            nc_out, is_arg = get_noncanonical(df, titr_col=titr_col)
 
-    df = mciou.mcfile2df(sumcrg)
-    titr_type, titr_col = get_titr_info(df)
+        # Get hi-chi,  no-curve, or out-of-bounds pkas from pK.out:
+        chi, curve, oob = get_bad_pks(pko)
 
-    nc_out = []
-    if titr_col:
-        # Get non-canonically charged residues:
-        nc_out, is_arg = get_noncanonical(df, titr_col=titr_col)
-
-    # Get hi-chi,  no-curve, or out-of-bounds pkas from pK.out:
-    chi, curve, oob = get_bad_pks(pko)
-
-    # Prep output:
-    if not (nc_out or chi or curve or oob):
-        out_fp = run_dir.joinpath("postrun.ok")
-        out_fp.touch(exist_ok=True)
-        if summary is not None:
-            summary["postrun_ok"].append(dname)
-        return
-
-    if summary is not None:
-        summary["postrun_bad"].append(dname)
-
-    outtxt = ""
-    if nc_out:
-        if titr_type == "eh":
-            outtxt += f"Non-canonical residues @ Eh point {float(titr_col):.1f}:\n"
-        else:
-            outtxt += f"Non-canonical residues @ pH point 7:\n"
-        if is_arg:
-            outtxt += dirname + f"{'WARNING':18s}:: Neutral ARG found in 'non_canonical' list.\n"
+        # Prep output:
+        if not (nc_out or chi or curve or oob):
+            out_fp = run_dir.joinpath("postrun.ok")
+            out_fp.touch(exist_ok=True)
             if summary is not None:
-                summary["non_canonical_arg"].append(dname)
-        
-        cat_count = f"non_canonical: {len(nc_out)}"
-        outtxt += dirname + f"{cat_count:18s}:: " + ", ".join(nc for nc in nc_out) + "\n"
-        if summary is not None:
-            summary["non_canonical"].append((dname, len(nc_out)))
-        
-    if chi:
-        cat_count = f"chi2 >= {HI_CHI}: {len(chi)}"
-        outtxt += dirname + f"{cat_count:18s}:: " + ", ".join(hc for hc in chi) + "\n"
-        if summary is not None:
-            summary["hi_chi"].append((dname, len(chi)))
+                summary["postrun_ok"].append(dname)
+            return []
 
-    if curve:
-        cat_count = f"no_curve: {len(curve)}"
-        outtxt += dirname + f"{cat_count:18s}:: " + ", ".join(c for c in curve) + "\n"
         if summary is not None:
-            summary["no_curve"].append((dname, len(curve)))
+            summary["postrun_bad"].append(dname)
 
-    if oob:
-        cat_count = f"out_of_bounds: {len(oob)}"
-        outtxt += dirname + f"{cat_count:18s}:: {oob}\n"
-        if summary is not None:
-            summary["out_of_bounds"].append((dname, len(oob)))
+        if nc_out:
+            n_nc = len(nc_out)
+            no_list = n_nc > 20 and titr_points < 7
+            if no_list:
+                value = too_many_msg
+                no_list = 0
+            else:
+                value =  ", ".join(nc for nc in nc_out)
+            postrun_lst.append([dname, "non_canonical", n_nc, value])
+            if summary is not None:
+                summary["non_canonical"].append((dname, len(nc_out)))
+        
+            if is_arg:
+                postrun_lst.append([dname, "non_canonical_arg", 1,
+                                    "One or more ARG in non_canonical list"])
+                if summary is not None:
+                    summary["non_canonical_arg"].append(dname)
+        
+        if chi:
+            postrun_lst.append([dname, "hi_chi", len(chi), ", ".join(hc for hc in chi)])
+            if summary is not None:
+                summary["hi_chi"].append((dname, len(chi)))
+
+        if curve:
+            postrun_lst.append([dname, "no_curve", len(curve), ", ".join(c for c in curve)])
+            if summary is not None:
+                summary["no_curve"].append((dname, len(curve)))
+
+        if oob:
+            n_oob = len(oob)
+            no_list = n_oob > 20 and titr_points < 7
+            cat_count = f"{dname}\tout_of_bounds\t{n_oob}\t"
+            if no_list:
+                value = too_many_msg
+                no_list = 0
+            else:
+                value = ", ".join(f"({tp[0]},{tp[1]})" for tp in oob)
+            postrun_lst.append([dname, "out_of_bounds", n_oob, value])
+            if summary is not None:
+                summary["out_of_bounds"].append((dname, n_oob))
     
-    # finally:
-    if run_dir.joinpath("new.tpl").exists():
-        outtxt += dirname + f"{'new_tpl':18s}:: True\n"
-        if summary is not None:
-            summary["new_tpl"].append(dname)
-    outtxt += "\n"
+        # finally:
+        if run_dir.joinpath("new.tpl").exists():
+            postrun_lst.append([dname, "new_tpl", 1, "new.tpl file found"])
+            if summary is not None:
+                summary["new_tpl"].append(dname)
 
     out_fp = run_dir.joinpath("postrun.bad")
-    out_fp.write_text(outtxt)
+    df = pd.DataFrame(postrun_lst, columns=["run", "category", "count", "value"])
+    df.to_csv(out_fp, sep="\t", index=False)
 
-    return
+    return postrun_lst
 
 
-def get_bench_postrun_reports(run_dir) -> dict:
-    """Iterate over run_dir/runs subfolder to create a postrun report,
-    then collate all the bad ones into a single file.
+def get_postrun_reports(run_dir) -> dict:
+    """Iterate over run_dir[/runs] subfolders that hold a step2_out.pdb
+    file to create a postrun report, then collate all the bad ones into a single file.
+    Note: step2_out.pdb is used as a sentinel to identify a mcce run folder.
     Return a summarizing dict.
     """
     summary = defaultdict(list)
@@ -244,14 +252,19 @@ def get_bench_postrun_reports(run_dir) -> dict:
         bench_dir = Path(run_dir).joinpath("runs")
     else:
         bench_dir = Path(run_dir)
-    
+
+    pr_lst = []
     for d in bench_dir.iterdir():
         if not d.is_dir():
             continue
-        get_postrun_report(d, summary=summary)
+        if d.joinpath("step2_out.pdb").exists():
+            pr_data = get_postrun_report(d, summary=summary)
+            if pr_data:
+                pr_lst.extend(pr_data)
 
-    # collate with cat command:
-    mciou.subprocess_run(f"cat runs/*/postrun.bad > all_postrun.bad")
+    out_fp = bench_dir.joinpath("all_postrun.bad")
+    df = pd.DataFrame(pr_lst, columns=["run", "category", "count", "value"])
+    df.to_csv(out_fp, sep="\t", index=False)
 
     return summary
 
@@ -265,7 +278,7 @@ def write_summary(summary: dict, smry_fp: Path):
         txt += f"postrun_ok : {len(summary['postrun_ok']): >3d}\n"
     if summary.get("missing_files") is not None and summary["missing_files"]:
         txt += "missing pK or sum_crg:\n" + "\n".join(d for d in summary["missing_files"])
-    txt += "....................\n\n"
+    txt += "\n....................\n\n"
     if summary.get("non_canonical") is not None and summary["non_canonical"]:
         txt += f"non_canonical    : {len(summary['non_canonical']): >3d}\n"
     if summary.get("non_canonical_arg") is not None and summary["non_canonical_arg"]:
@@ -303,31 +316,30 @@ def pr_cli(argv = None):
         epilog=CLI_EPILOG
     )
     p.add_argument(
-        "-run_dir",
+        "-run-dir",
         type=str,
         default=".",
-        help="Path to a mcce run directory; default: %(default)s.",
+        help="Path to a mcce run directory; default: %(default)s",
     )
     p.add_argument(
-        "--is_benchmark",
+        "--do-subfolders",
         default=False,
         action="store_true",
-        help="If given, the program will check for a possible 'runs' subfolder, " \
-        "which may have been setup by the benchmark app.; default: %(default)s.",
+        help="If given, the program will check subfolders for mcce runs; default: %(default)s",
     )
 
     args = p.parse_args(argv)
 
     here = args.run_dir == "."
     smry_fp = None
-    if args.is_benchmark:
+    if args.do_subfolders:
         if not here:
             rundir = Path(args.run_dir).resolve()
             os.chdir(rundir)
         else:
             rundir = Path.cwd()
-        # iterate over run_dir/runs subfolders & collate
-        summary = get_bench_postrun_reports(rundir)
+        # iterate over run_dir subfolders & collate
+        summary = get_postrun_reports(rundir)
 
         if here:
             if summary:
