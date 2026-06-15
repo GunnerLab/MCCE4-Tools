@@ -20,7 +20,7 @@ from collections import defaultdict
 
 # ── Constants ────────────────────────────────────────────────────────────────
 PKA0 = {
-    "ASP": 4.75, "GLU": 4.75, "HIS": 6.98, "LYS": 10.4,
+    "ASP": 4.75, "GLU": 4.75, "CYS": 9.10, "HIS": 6.98, "LYS": 10.4,
     "TYR": 10.20, "ARG": 12.5, "NTR": 8.00, "CTR": 3.75,
 }
 
@@ -34,13 +34,13 @@ STANDARD_RES = {
 
 ALLOWED_RES = STANDARD_RES | IONIZABLE_RES
 
-IONIZABLE_ORDER = ["ASP", "GLU", "CTR", "HIS", "NTR", "TYR", "LYS", "ARG"]
+IONIZABLE_ORDER = ["ASP", "GLU", "CTR", "CYS", "HIS", "NTR", "TYR", "LYS", "ARG"]
 NON_IONIZABLE_ORDER = [
-    "ALA", "CYS", "GLY", "ILE", "LEU", "MET", "PHE",
+    "ALA", "GLY", "ILE", "LEU", "MET", "PHE",
     "PRO", "SER", "THR", "TRP", "VAL", "ASN", "GLN",
 ]
 
-ACIDS = {"ASP", "GLU", "CTR", "TYR"}
+ACIDS = {"ASP", "GLU", "CTR", "CYS", "TYR"}
 BASES = {"ARG", "HIS", "LYS", "NTR"}
 RT_LN10 = 1.364
 
