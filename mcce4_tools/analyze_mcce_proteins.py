@@ -310,6 +310,15 @@ def run_analysis(topdir, outdir, target_ph, burial_threshold, top_n,
             else:
                 abs_sas, frac_acc = None, None
 
+            buried = (frac_acc <= burial_threshold) if frac_acc is not None else None
+            if pka_shift is not None and restype in IONIZABLE_RES:
+                if restype in ACIDS:
+                    energy = pka_shift * RT_LN10
+                else:
+                    energy = pka_shift * (-RT_LN10)
+            else:
+                energy = None
+
             residue_rows.append({
                 "pdb": pdb,
                 "restype": restype,
@@ -317,8 +326,10 @@ def run_analysis(topdir, outdir, target_ph, burial_threshold, top_n,
                 "pKa": pka_str,
                 "pKa0": pka0,
                 "pKa_shift": f"{pka_shift:.3f}" if pka_shift is not None else pka_str,
+                "energy_kcal": f"{energy:.3f}" if energy is not None else "",
                 "abs_sas": f"{abs_sas:.3f}" if abs_sas is not None else "",
                 "frac_acc": f"{frac_acc:.3f}" if frac_acc is not None else "",
+                "buried": int(buried) if buried is not None else "",
             })
             if pka_shift is not None:
                 pka_shifts.append(pka_shift)
@@ -333,13 +344,23 @@ def run_analysis(topdir, outdir, target_ph, burial_threshold, top_n,
         else:
             bb_dip, ion_dip, full_dip = None, None, None
 
+        n_total_res = sum(bur_total.values())
+        n_buried_total = sum(bur_buried.values())
+        n_ion_total = sum(v for rt, v in bur_total.items() if rt in IONIZABLE_RES)
+        n_buried_ion = sum(v for rt, v in bur_buried.items() if rt in IONIZABLE_RES)
+
         charge_col = f"net_charge_pH{int(target_ph)}"
         row = {
             "pdb": pdb,
             "total_sas": f"{total_sas:.2f}",
             charge_col: f"{net_charge:.2f}" if net_charge is not None else "",
             "pI": f"{pi:.2f}" if pi is not None else "",
+            "n_residues": n_total_res,
+            "n_buried": n_buried_total,
+            "frac_buried": f"{n_buried_total / n_total_res:.3f}" if n_total_res else "",
             "n_ionizable": n_ionizable,
+            "n_ionizable_buried": n_buried_ion,
+            "frac_ionizable_buried": f"{n_buried_ion / n_ion_total:.3f}" if n_ion_total else "",
             "n_with_pKa": len(pka_shifts),
             "mean_pKa_shift": f"{mean_shift:.3f}" if mean_shift is not None else "",
             "max_abs_pKa_shift": f"{max_abs_shift:.3f}" if max_abs_shift is not None else "",
@@ -761,12 +782,9 @@ def run_plot(outdir, topdir, target_ph, burial_threshold, dpi):
 
     # ── Figure 3: pKa shift + energy comparison (2 rows × 3 columns) ─────
     for r in residue_data:
-        if r["pKa_shift_num"] is not None and r["restype"] in IONIZABLE_RES:
-            if r["restype"] in ACIDS:
-                r["energy"] = r["pKa_shift_num"] * RT_LN10
-            else:
-                r["energy"] = r["pKa_shift_num"] * (-RT_LN10)
-        else:
+        try:
+            r["energy"] = float(r["energy_kcal"])
+        except (ValueError, KeyError):
             r["energy"] = None
 
     fig3 = plt.figure(figsize=(18, 13))
