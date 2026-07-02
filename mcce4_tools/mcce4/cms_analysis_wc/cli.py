@@ -16,7 +16,7 @@ import sys
 from mcce4.cms_analysis_wc import APP_NAME, IONIZABLES
 from mcce4.cms_analysis_wc import analysis as msa
 from mcce4.cms_analysis_wc import parameters as prm
-from mcce4.constants import CLI_EPILOG
+from mcce4 import CLI_EPILOG
 
 
 logger = logging.getLogger(__name__)
