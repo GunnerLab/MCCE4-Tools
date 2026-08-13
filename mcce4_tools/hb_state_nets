@@ -13,6 +13,9 @@ from functools import partial
 from pathlib import Path
 import networkx as nx
 
+DEFAULT_RESI_LIST = 'resi_list.txt'
+DEFAULT_RESI_START_STOP = 'resi_list_start-stop.txt'
+
 DESCRIPTION_HELP = """\
 Find H-bond networks across unique residue microstates. Builds an H-bond
 graph per microstate, then traces paths from entry to exit residues
@@ -20,12 +23,12 @@ graph per microstate, then traces paths from entry to exit residues
 ranked by Arrhenius rate and energy.
 
 Examples (set CSV=hb_states_pH7.00eH0.00.csv):
-  hb_state_nets $CSV -resi_start_stop resi_list_start-stop.txt
-  hb_state_nets $CSV -resi_start_stop resi_list_start-stop.txt -net_length 2 N
-  hb_state_nets $CSV -resi_list resi_list.txt --any
+  hb_state_nets $CSV -resi_start_stop         # uses resi_list_start-stop.txt
+  hb_state_nets $CSV -resi_list               # uses resi_list.txt
+  hb_state_nets $CSV -resi_start_stop paths.txt -net_length 2 N
 """
 
-RESIDUE_FORMAT_HELP = """\
+RESIDUE_FORMAT_HELP = f"""\
 Residue file formats
 --------------------
 Residues are named XXXCYYYY: residue, chain, 4-digit number, e.g. THRP1155.
@@ -33,15 +36,20 @@ That is the conformer ID with its ionization and conformer suffix dropped
 (THR01P1155_001 -> THRP1155). Names must match exactly; with --confs, list
 full conformer IDs instead.
 
--resi_start_stop    two whitespace-separated columns, ENTRY header optional.
-                    Paths are traced from any ENTRY to any EXIT residue.
+Each flag reads the default file named below when given no path of its own;
+any other path may be passed instead, the name carries no meaning.
+
+-resi_start_stop    default {DEFAULT_RESI_START_STOP}. Two whitespace-
+                    separated columns, ENTRY header optional. Paths are
+                    traced from any ENTRY to any EXIT residue.
 
                         ENTRY     EXIT
                         THRP1155  GLUP1158
                         ASNP0335  GLUP0333
 
--resi_list          one residue per line, # comments and blank lines ignored.
-                    Paths must contain all of them, or any one with --any.
+-resi_list          default {DEFAULT_RESI_LIST}. One residue per line, with
+                    # comments and blank lines ignored. Paths must contain
+                    all of them, or any one with --any.
 
                         THRP1155
                         GLUP1158
@@ -56,11 +64,17 @@ parser.add_argument('input_csv', metavar='input.csv',
                          '(state_normalized,hb_count,count,occ) CSV. This is '
                          'hb_states_<pH><Eh>.csv, not hb_states_pairs_<pH><Eh>.csv')
 parser.add_argument('-resi_list', metavar='FILE',
+                    nargs='?', const=DEFAULT_RESI_LIST,
                     help='Residues of interest, one per line (format below). Reports '
-                         'paths containing all of them, or any one with --any.')
+                         'paths containing all of them, or any one with --any. FILE '
+                         'is optional: give your own path, or omit it to use the '
+                         f'default {DEFAULT_RESI_LIST}')
 parser.add_argument('-resi_start_stop', metavar='FILE',
+                    nargs='?', const=DEFAULT_RESI_START_STOP,
                     help='ENTRY/EXIT residue columns (format below). Finds paths from '
-                         'any entry residue to any exit residue.')
+                         'any entry residue to any exit residue. FILE is optional: '
+                         'give your own path, or omit it to use the default '
+                         f'{DEFAULT_RESI_START_STOP}')
 parser.add_argument('-net_length', nargs=2, default=['3', '10'],
                     metavar=('MIN', 'MAX'),
                     help='Minimum and maximum network path length in nodes '
@@ -84,6 +98,11 @@ args = parser.parse_args()
 
 if not args.resi_list and not args.resi_start_stop:
     parser.error('at least one of -resi_list or -resi_start_stop is required')
+
+for flag, path in (('-resi_list', args.resi_list),
+                   ('-resi_start_stop', args.resi_start_stop)):
+    if path and not os.path.isfile(path):
+        parser.error(f'{flag}: residue file not found: {path}')
 
 args.net_length[0] = int(args.net_length[0])
 args.net_length[1] = None if args.net_length[1].upper() == 'N' else int(args.net_length[1])
