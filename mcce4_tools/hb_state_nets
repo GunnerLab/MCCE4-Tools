@@ -13,28 +13,54 @@ from functools import partial
 from pathlib import Path
 import networkx as nx
 
+DESCRIPTION_HELP = """\
+Find H-bond networks across unique residue microstates. Builds an H-bond
+graph per microstate, then traces paths from entry to exit residues
+(-resi_start_stop) or paths through residues of interest (-resi_list),
+ranked by Arrhenius rate and energy.
+
+Examples (set STATES=hb_states_pH7.00eH0.00.csv):
+  hb_state_nets $STATES -resi_start_stop resi_list.txt
+  hb_state_nets $STATES -resi_start_stop resi_list.txt -net_length 2 N
+  hb_state_nets $STATES -resi_list resi_of_interest.txt --any
+"""
+
+RESIDUE_FORMAT_HELP = """\
+Residue file formats
+--------------------
+Residues are named XXXCYYYY: residue, chain, 4-digit number, e.g. THRP1155.
+That is the conformer ID with its ionization and conformer suffix dropped
+(THR01P1155_001 -> THRP1155). Names must match exactly; with --confs, list
+full conformer IDs instead.
+
+-resi_start_stop    two whitespace-separated columns, ENTRY header optional.
+                    Paths are traced from any ENTRY to any EXIT residue.
+
+                        ENTRY     EXIT
+                        THRP1155  GLUP1158
+                        ASNP0335  GLUP0333
+
+-resi_list          one residue per line, # comments and blank lines ignored.
+                    Paths must contain all of them, or any one with --any.
+
+                        THRP1155
+                        GLUP1158
+"""
+
 parser = argparse.ArgumentParser(
-    description='Find H-bond networks across unique residue microstates. '
-                'Accepts either the raw MCCE hb_states CSV (state_id column, '
-                'conformer-level pairs) or the aggregated residue-level CSV '
-                '(state_normalized column from hb_state_aggregate.py). Builds '
-                'an H-bond graph per microstate and searches for networks using '
-                'one of two modes: -resi_list finds paths containing all listed '
-                'residues (or any with --any); -resi_start_stop finds shortest '
-                'paths from entry to exit residues and ranks them by Arrhenius '
-                'rate and energy with pairwise and uncorrelated statistics.')
+    formatter_class=argparse.RawDescriptionHelpFormatter,
+    description=DESCRIPTION_HELP,
+    epilog=RESIDUE_FORMAT_HELP)
 parser.add_argument('input_csv', metavar='input.csv',
-                    help='Input CSV: either raw hb_states (state_id,averE,count,occ) '
-                         'or aggregated (state_normalized,hb_count,count,occ)')
+                    help='Raw hb_states (state_id,averE,count,occ) or aggregated '
+                         '(state_normalized,hb_count,count,occ) CSV. This is '
+                         'hb_states_<pH><Eh>.csv, not hb_states_pairs_<pH><Eh>.csv')
 parser.add_argument('-resi_list', metavar='FILE',
-                    help='Text file with residues of interest (one per line). '
-                         'Reports paths containing all listed residues (use --any '
-                         'to keep paths with at least one).')
+                    help='Residues of interest, one per line (format below). Reports '
+                         'paths containing all of them, or any one with --any.')
 parser.add_argument('-resi_start_stop', metavar='FILE',
-                    help='Tab-separated file with ENTRY/EXIT columns. '
-                         'Header: ENTRY<tab>EXIT. Each line: ENTRY_RES<tab>EXIT_RES '
-                         'or just ENTRY_RES (entry-only). Finds paths from any entry '
-                         'residue to any exit residue.')
+                    help='ENTRY/EXIT residue columns (format below). Finds paths from '
+                         'any entry residue to any exit residue.')
 parser.add_argument('-net_length', nargs=2, default=['3', '10'],
                     metavar=('MIN', 'MAX'),
                     help='Minimum and maximum network path length in nodes '
