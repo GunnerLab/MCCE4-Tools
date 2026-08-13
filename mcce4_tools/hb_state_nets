@@ -19,10 +19,10 @@ graph per microstate, then traces paths from entry to exit residues
 (-resi_start_stop) or paths through residues of interest (-resi_list),
 ranked by Arrhenius rate and energy.
 
-Examples (set STATES=hb_states_pH7.00eH0.00.csv):
-  hb_state_nets $STATES -resi_start_stop resi_list.txt
-  hb_state_nets $STATES -resi_start_stop resi_list.txt -net_length 2 N
-  hb_state_nets $STATES -resi_list resi_of_interest.txt --any
+Examples (set CSV=hb_states_pH7.00eH0.00.csv):
+  hb_state_nets $CSV -resi_start_stop resi_list_start-stop.txt
+  hb_state_nets $CSV -resi_start_stop resi_list_start-stop.txt -net_length 2 N
+  hb_state_nets $CSV -resi_list resi_list.txt --any
 """
 
 RESIDUE_FORMAT_HELP = """\
