@@ -2,13 +2,12 @@
 
 """
 Module: postrun.py
-
-Provides basic diagnostics on sum_crg.out and pK.out data
-in a tab-separated file 'postrun.bad':
+# As in cli epilog:
+Outputs basic diagnostics on sum_crg.out and pK.out data in tab-separated 'postrun.bad' file:
    - Non-canonically charged residues;
    - Residues without curve fit or high chi^2 (>= 3).
    - Residues out-of-bounds, < first point, or > last point.
-Output:
+Output files: 'postrun.bad', 'postrun.ok'
   - Empty file run_dir/'postrun.ok' is created when no issues were found.
   - Sample contents in run_dir/'postrun.bad' file:
     run     category        count   value
@@ -21,6 +20,7 @@ import logging
 import operator
 import os
 from pathlib import Path
+import re
 import sys
 from typing import Tuple
 
@@ -33,6 +33,9 @@ import mcce4.io_utils as mciou
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
+
+
+EPILOG = "\n".join(line for line in __doc__.splitlines()[3:]) + "\n"
 
 
 # default high chi^2:
@@ -94,10 +97,40 @@ def get_noncanonical(df: pd.DataFrame, titr_col: str = "") -> Tuple[list, bool]:
     return out, is_arg
 
 
+def ionizable_res_ratio_from_protinfo_rpt(pdb_dir: str) -> float:
+    """Search the pdb_dir protinfo report for 'Ratio' relating
+    to the ratio of ionizable residues in each chains.
+    Return -1.0 if report was not found or the sum of all ratios,
+    which can then be tested.
+    Example:
+    ```
+      for dir_fp in Path(top_dir).iterdir():
+          r = ionizable_res_ratio_from_protinfo_rpt(dir_fp)
+          if (r >= 0) and (r == 0):
+              print("No ionizable residues in", pdb_dir, ". Skipping postrun.")
+              continue
+    ```
+    """
+    rpt_fp = list(Path(pdb_dir).glob("*_protinfo.md"))
+    if not rpt_fp:
+        return -1.0
+
+    # use the first one; there should not be multiple
+    txt = rpt_fp[0].read_text()
+    pattern = r"\d+(?:\.\d+)?(?=%)"
+    found = set()
+    
+    for match in re.finditer(pattern, txt, flags=re.MULTILINE):
+        if match:
+            found.add(float(match.group()))
+    
+    return sum(found)
+
+
 def get_bad_pks(pko: Path) -> Tuple[list, list, list]:
     """Get bad data in pK.out with path 'pko'.
-    Return a 2-tuple of lists for high chi-squared values
-    and residues with no curve fit, and those out-of-bounds.
+    Return a 3-tuple of lists for high chi-squared values,
+    residues with no curve fit, and pK out-of-bounds.
     """
     chi = []
     curve = []
@@ -120,11 +153,21 @@ def get_bad_pks(pko: Path) -> Tuple[list, list, list]:
                 except IndexError:
                     pass
     except UnicodeDecodeError:
-        logger.info((f"Decode Error on pK.out of {pko.parent.name}: Such an error with pK.out  "
-                     "is likely due to the pdb not having any ionizable residues.")
-                    )
+        # rare case: attempt at confirming with protinfo report if found (reduced processing)
+        no_ioniz = False
+        r = ionizable_res_ratio_from_protinfo_rpt(pko.parent)
+        if (r >= 0) and (r == 0):
+            no_ioniz = True
+            print("No ionizable residues in", pko.stem, ". Skipping postrun.")
+        elif r == -1:  # no prerun report
+            logger.info((f"Decode Error on pK.out of {pko.parent.name}: Such an error with pK.out "
+                        "is likely due to the pdb not having any ionizable residues.")
+                        )
         # leave info in the output:
-        oob.append(("DecodeError", "To be verified: this pdb has no ionizable residues."))
+        if no_ioniz:
+            oob.append(("DecodeError", "This pdb has no ionizable residues."))
+        else:
+            oob.append(("DecodeError", "To be verified: this pdb has no ionizable residues."))
 
     return chi, curve, oob
 
@@ -319,9 +362,9 @@ def pr_cli(argv = None):
 
     p = argparse.ArgumentParser(
         prog="postrun",
-        description=__doc__,
+        description="Diagnostics on a run using sum_crg.out & pKa.out",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=CLI_EPILOG
+        epilog=EPILOG + CLI_EPILOG
     )
     p.add_argument(
         "-run-dir",
