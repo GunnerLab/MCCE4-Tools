@@ -102,22 +102,29 @@ def get_bad_pks(pko: Path) -> Tuple[list, list, list]:
     chi = []
     curve = []
     oob = []
-    with open(pko) as fin:
-        for j, line in enumerate(fin.readlines()):
-            if j == 0:
-               continue
-            if "too sharp" in line:
-                curve.append(line[:10])
-                continue
-            cols = line.split()
-            # pK.out is a subset of pK_extended.out wiith only 3 cols
-            if len(cols) < 3:
-                oob.append((cols[0], cols[1]))
-            try:
-                if float(cols[3]) >= HI_CHI:
-                    chi.append(cols[0])
-            except IndexError:
-                pass
+    try:
+        with open(pko, encoding='utf-8') as fin:
+            for j, line in enumerate(fin.readlines()):
+                if j == 0:
+                    continue
+                if "too sharp" in line:
+                    curve.append(line[:10])
+                    continue
+                cols = line.split()
+                # pK.out is a subset of pK_extended.out wiith only 3 cols
+                if len(cols) < 3:
+                    oob.append((cols[0], cols[1]))
+                try:
+                    if float(cols[3]) >= HI_CHI:
+                        chi.append(cols[0])
+                except IndexError:
+                    pass
+    except UnicodeDecodeError:
+        logger.info((f"Decode Error on pK.out of {pko.parent.name}: Such an error with pK.out  "
+                     "is likely due to the pdb not having any ionizable residues.")
+                    )
+        # leave info in the output:
+        oob.append(("DecodeError", "To be verified: this pdb has no ionizable residues."))
 
     return chi, curve, oob
 
