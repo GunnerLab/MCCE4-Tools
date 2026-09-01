@@ -645,11 +645,9 @@ def sort_resoi_list(res_kinds: list) -> list:
 
 class TopNCmsPipeline:
     def __init__(self, args: Union[Namespace, dict]):
-        self.int_ph: bool = True
         self.inpdb: str = "prot.pdb"
+        self.int_ph: bool = True
         self.mcce_files: tuple = None
-        self.pdb_format = args.pdb_format
-        self.no_pdbs: bool = args.no_pdbs
         self.outname: str = None
         self.output_dir: Path = None
         self.mso: MSout_np = None
@@ -670,7 +668,7 @@ class TopNCmsPipeline:
             args = Namespace(**args)
 
         # to get the output name with same input ph format
-        if "." in args.ph:
+        if "." in str(args.ph):
             self.int_ph = False
             args.ph = float(args.ph)
             args.eh = float(args.eh)
@@ -711,7 +709,7 @@ Input options:
   Occupancy threshold: {self.min_occ:.2%};
   Keep waters? {self.args.wet};
   Reduced number of ms data? {self.args.reduced_ms_rows};
-  Write pdbs? {not self.no_pdbs};
+  Write pdbs? {not self.args.no_pdbs};
   Output folder: {self.output_dir}
 """
         print(msg)
@@ -802,9 +800,9 @@ Input options:
         print(self.mso)
         self.process_microstates()
         out_time = time.time()
-        if not self.no_pdbs:
+        if not self.args.no_pdbs:
             self.write_mcce_pdbs()
-            if self.pdb_format:
+            if self.args.pdb_format:
                 self.convert_pdbs()
         self.write_tsv_and_summary()
         show_elapsed_time(out_time, info="Writing all output files")

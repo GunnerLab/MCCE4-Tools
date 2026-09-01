@@ -1,0 +1,21 @@
+#!/usr/bin/env python3
+
+"""
+Tool: ms_top1ms_subdirs
+
+Purpose:
+The tool looks for the msout files 2 levels deep from
+the current folder (*/*/ms_out/pH7*eH0*ms.txt).
+
+The tool is preset to output the top1ms .tsv and summary files
+without producing any pdbs.
+"""
+import sys
+from mcce4.run_top1ms_in_subdirs import main
+
+
+if __name__ == "__main__":
+    if len(sys.argv) == 2 and sys.argv[1] in ["-h", "--help"]:
+        print(__doc__)
+    else:
+        sys.exit(main())
