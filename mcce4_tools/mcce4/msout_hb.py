@@ -306,12 +306,17 @@ class ConfInfo:
         # temp list structure is now sized & has h3 info; cast to np.ndarray:
         conf_info = np.array(conf_info, dtype=object)
 
-        # is_free field
-        free_ics = list(iconf2ires.keys())
-        conf_info[free_ics, -1] = 1
-        # fixed on
-        conf_info[fixed_iconfs, 3] = 1
-
+        try:
+            # is_free field
+            free_ics = list(iconf2ires.keys())
+            conf_info[free_ics, -1] = 1
+            # fixed on
+            conf_info[fixed_iconfs, 3] = 1
+        except IndexError:
+            print("[STOP] ConfInfo.load: Mismatch between conformer data in head3.lst and",
+                    "given inputs (typically extracted from the msout file header).")
+            return
+        
         # populate the rx of free res, if possible
         for i, (_, _, cx, *_) in enumerate(conf_info): 
             conf_info[i][-2] = iconf2ires.get(cx, -1)
@@ -472,6 +477,8 @@ class MSout_hb:
 
         # data from the msout file 'header':
         self.HDR = MsoutHeaderData(self.msout_fp)
+        if not self.HDR.method:
+            sys.exit("msout file not found.")
         if not self.HDR.is_monte:
             sys.exit(NO_MONTE_MSG)
 
@@ -480,6 +487,8 @@ class MSout_hb:
         # fields: confid:0, crg:1, iconf:2, is_fixed:3, ires:4, is_free:5
         self.CI.load(self.HDR.iconf2ires, self.HDR.fixed_iconfs)
         # + CI.n_confs, CI.max_iconf, CI.max_ires
+        if self.CI.conf_info is None:
+            sys.exit("[DATA MISMATCH]: Conformer info could not be loaded.")
 
         # attributes populated by get_extended_iconfs:
         self.n_fx: int = 0

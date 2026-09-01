@@ -67,8 +67,9 @@ MC_METHODS = ["MONTERUNS", "ENUMERATE"]
 class MsoutHeaderData:
     """This class handles the loading of the data in the header of a 'msout file'.
     """
-    def __init__(self, msout_fp: Path):
+    def __init__(self, msout_fp: Union[str, Path]):
         self.msout_fp = msout_fp
+        self.file_exists = Path(msout_fp).exists()
         self.T: float = ROOMT
         self.pH: float = 7.0
         self.Eh: float = 0.0
@@ -82,8 +83,11 @@ class MsoutHeaderData:
         self.iconf2ires: Dict = {}
         self.free_iconfs: List[int] = []
         self.n_free_ics: int = 0
-        
-        self.load()
+
+        if self.file_exists:
+            self.load()
+        else:
+            print(f"[STOP]: File not found: {msout_fp!s}")
 
         return
     
