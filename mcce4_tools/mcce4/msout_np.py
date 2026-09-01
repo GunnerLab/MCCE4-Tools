@@ -97,7 +97,7 @@ class ConfInfo:
         with np.printoptions(threshold=3000):
             out = out + "\n" + str(self.conf_info)
         return out
-        
+
     def load(self, iconf2ires: Dict, fixed_iconfs: List[int], with_tautomers: bool,
              residue_kinds: List[str] = None):
         """Popuate the 'conf_info' attribute (np.ndarray): a lookup 'table' for:
@@ -138,17 +138,22 @@ class ConfInfo:
         conf_info = np.array(conf_info, dtype=object)
         self.conf_ids = np.array(conf_vec, dtype=object)
 
-        # is_free field
-        # conf_info: [iconf, resid, in_kinds, is_ioniz, is_fixed, is_free, resix, crg]
-        free_ics = list(iconf2ires.keys())
-        conf_info[free_ics, -3] = 1
+        try:
+            # is_free field
+            # conf_info: [iconf, resid, in_kinds, is_ioniz, is_fixed, is_free, resix, crg]
+            free_ics = list(iconf2ires.keys())
+            conf_info[free_ics, -3] = 1
 
-        # populate the ires of free res, if possible
-        for i, (iconf, *_) in enumerate(conf_info): 
-            conf_info[i][-2] = iconf2ires.get(iconf, -1)
+            # populate the ires of free res, if possible
+            for i, (iconf, *_) in enumerate(conf_info): 
+                conf_info[i][-2] = iconf2ires.get(iconf, -1)
 
-        # populate the 'is_fixed' as not free & not fixed 'off'
-        conf_info[np.where((conf_info[:,-3]==0) & np.isin(conf_info[:,0], fixed_iconfs)), -4] = 1
+            # populate the 'is_fixed' as not free & not fixed 'off'
+            conf_info[np.where((conf_info[:,-3]==0) & np.isin(conf_info[:,0], fixed_iconfs)), -4] = 1
+        except IndexError:
+            print("[STOP] ConfInfo.load: Mismatch between conformer data in head3.lst and",
+                  "given inputs (typically extracted from the msout file header).")
+            return
         
         # get cms unique resids list via filtering conf_info for valid confs for
         # protonation state vec: is_ioniz & is_free & in user list if given.
@@ -264,6 +269,11 @@ class MSout_np:
                  reduced_ms_rows: bool = False,
                  verbose: bool = False,
                  ):
+        # fail fast:
+        if mc_load not in ["conf", "crg", "all"]:
+            print("STOP: No processing function associated with:", mc_load)
+            return
+
         self.verbose = verbose
         self.h3_fp = Path(head3_file)
         self.msout_fp = Path(msout_file)
@@ -276,6 +286,8 @@ class MSout_np:
         self.validate_kwargs(mc_load, res_kinds, with_tautomers)
 
         self.HDR = MsoutHeaderData(self.msout_fp)
+        if not self.HDR.method:
+            return("msout file not found.")
 
         self.CI = ConfInfo(self.h3_fp, verbose=self.verbose)
         # load the self.CI.conf_info lookup array:
@@ -283,6 +295,10 @@ class MSout_np:
         self.CI.load(self.HDR.iconf2ires, self.HDR.fixed_iconfs,
                      self.with_tautomers,
                      residue_kinds=self.res_kinds)
+        if self.CI.conf_info is None:
+            print("[DATA MISMATCH]: Conformer info could not be loaded.")
+            return
+
         # copy from CI.conf_info
         self.conf_info = self.CI.conf_info
         self.cms_resids = self.CI.cms_resids  # :: list of resids defining a cms
@@ -307,24 +323,28 @@ class MSout_np:
             start_t = time.time()
             self.load_conf()
             show_elapsed_time(start_t, info="Loading msout for conf ms")
-
-        elif self.mc_load == "crg":
-            start_t = time.time()
-            self.load_crg()
-            show_elapsed_time(start_t, info="Loading msout for cms")
-
-        elif self.mc_load == "all":
-            # if loadtime_estimate:
-            #     yt = topN_loadtime_estimate(len(self.HDR.free_residues))  #free_iconfs?
-            #     print(f"\nESTIMATED TIME to topN: {yt:,.2f} s ({yt/60:,.2f} min).\n")
-            start_t = time.time()
-            self.load_all()
-            show_elapsed_time(start_t, info="Loading msout for ms & cms")
         else:
-            print("No processing function associated with:", self.mc_load)
+            # check if any cms res:
+            if not self.cms_resids:
+                print("STOP: The conformers data indicate that the protein either has",
+                      "no ionizable residues or that they're all 'fixed-off' ('mc_load' can only be 'conf').")
+                return
+
+            if self.mc_load == "crg":
+                start_t = time.time()
+                self.load_crg()
+                show_elapsed_time(start_t, info="Loading msout for cms")
+
+            elif self.mc_load == "all":
+                # if loadtime_estimate:
+                #     yt = topN_loadtime_estimate(len(self.HDR.free_residues))  #free_iconfs?
+                #     print(f"\nESTIMATED TIME to topN: {yt:,.2f} s ({yt/60:,.2f} min).\n")
+                start_t = time.time()
+                self.load_all()
+                show_elapsed_time(start_t, info="Loading msout for ms & cms")
 
         return
-
+    
     def validate_kwargs(self, mc_load: str, res_kinds: list, with_tautomers: bool):
         # valid loading modes:
         loading_modes = ["conf", "crg", "all"]
