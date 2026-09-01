@@ -27,7 +27,7 @@ Usage examples:
   > ms_top2pdbs path/to/mcce_dir
   > ms_top2pdbs path/to/mcce_dir -eh 30
   > ms_top2pdbs path/to/mcce_dir -min_occ 0.002
-  > ms_top2pdbs path/to/mcce_dir -ph 4 n_top 10
+  > ms_top2pdbs path/to/mcce_dir -ph 4 n_top 10 --no_pdbs
 
   # Residues: comma-separated; order & case insensitive:
   > ms_top2pdbs -residue_kinds _CL,his,GLU
@@ -45,7 +45,7 @@ OUTPUT FILES:
  - summary.txt: List non-charged Asp, Glu, Arg, Lys, charged His, Tyr, Cys and neutral His tautomers
                 in topN microstates.
 
- At most top_n coordinate files in these formats:
+ At most top_n coordinate files in these formats (w/o 'no_pdbs' flag):
   - topmsN.pdb output each microstate in pdb format; N=1, 2, ..., top_n
   - s2_topmsN.pdb output each microstate in MCCE step2_out.pdb format
   - s2_topmsN.pqr output in pqr format (position, charge, radius)
@@ -492,7 +492,11 @@ def get_confids_dict(
     """Combine the free confids in a microstate with the fixed ones into a dict.
     """
     logger.info("Combining free and fixed confids.")
-    fixed_ids = conf_ids[fixed_iconfs]
+    try:
+        fixed_ids = conf_ids[fixed_iconfs]
+    except IndexError:
+        sys.exit("[DATA MISMATCH]: Fixed conformers in head3 do not match msout file.")
+
     free_ids = conf_ids[top_ms[ms_idx][1], 1]
     # dict used for convenience of '.get' method for identifying conf to write in pdb;
     # 1 is a dummy value
@@ -645,6 +649,7 @@ class TopNCmsPipeline:
         self.inpdb: str = "prot.pdb"
         self.mcce_files: tuple = None
         self.pdb_format = args.pdb_format
+        self.no_pdbs: bool = args.no_pdbs
         self.outname: str = None
         self.output_dir: Path = None
         self.mso: MSout_np = None
@@ -706,6 +711,7 @@ Input options:
   Occupancy threshold: {self.min_occ:.2%};
   Keep waters? {self.args.wet};
   Reduced number of ms data? {self.args.reduced_ms_rows};
+  Write pdbs? {not self.no_pdbs};
   Output folder: {self.output_dir}
 """
         print(msg)
@@ -796,9 +802,10 @@ Input options:
         print(self.mso)
         self.process_microstates()
         out_time = time.time()
-        self.write_mcce_pdbs()
-        if self.pdb_format:
-            self.convert_pdbs()
+        if not self.no_pdbs:
+            self.write_mcce_pdbs()
+            if self.pdb_format:
+                self.convert_pdbs()
         self.write_tsv_and_summary()
         show_elapsed_time(out_time, info="Writing all output files")
         show_elapsed_time(start_time, info="Entire pipeline")
@@ -880,6 +887,12 @@ def cli_parser() -> ArgumentParser:
         both ms and cms data, the number of saved ms data rows will match that of 
         the saved cms. Default: %(default)s
         """
+    )
+    p.add_argument(
+        "--no_pdbs",
+        default=False,
+        action="store_true",
+        help="Do not create pdb files. Default: %(default)s"
     )
 
     return p
