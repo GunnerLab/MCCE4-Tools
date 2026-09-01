@@ -20,7 +20,6 @@ import logging
 import operator
 import os
 from pathlib import Path
-import re
 import sys
 from typing import Tuple
 
@@ -28,7 +27,7 @@ import pandas as pd
 
 from mcce4 import CLI_EPILOG
 from mcce4.constants import CANONICAL
-import mcce4.io_utils as mciou
+from mcce4.io_utils  import mcfile2df, ionizable_res_ratio_from_protinfo_rpt
 
 
 logger = logging.getLogger(__name__)
@@ -95,36 +94,6 @@ def get_noncanonical(df: pd.DataFrame, titr_col: str = "") -> Tuple[list, bool]:
                         is_arg = True
 
     return out, is_arg
-
-
-def ionizable_res_ratio_from_protinfo_rpt(pdb_dir: str) -> float:
-    """Search the pdb_dir protinfo report for 'Ratio' relating
-    to the ratio of ionizable residues in each chains.
-    Return -1.0 if report was not found or the sum of all ratios,
-    which can then be tested.
-    Example:
-    ```
-      for dir_fp in Path(top_dir).iterdir():
-          r = ionizable_res_ratio_from_protinfo_rpt(dir_fp)
-          if (r >= 0) and (r == 0):
-              print("No ionizable residues in", pdb_dir, ". Skipping postrun.")
-              continue
-    ```
-    """
-    rpt_fp = list(Path(pdb_dir).glob("*_protinfo.md"))
-    if not rpt_fp:
-        return -1.0
-
-    # use the first one; there should not be multiple
-    txt = rpt_fp[0].read_text()
-    pattern = r"\d+(?:\.\d+)?(?=%)"
-    found = set()
-    
-    for match in re.finditer(pattern, txt, flags=re.MULTILINE):
-        if match:
-            found.add(float(match.group()))
-    
-    return sum(found)
 
 
 def get_bad_pks(pko: Path) -> Tuple[list, list, list]:
@@ -215,7 +184,7 @@ def get_postrun_report(run_dir: str, summary: dict = None) -> list:
         if summary is not None:
             summary["missing_files"].append(dname)
     else:
-        df = mciou.mcfile2df(sumcrg)
+        df = mcfile2df(sumcrg)
         titr_type, titr_col, titr_points = get_titr_info(df)
         too_many_msg = f"Likely due to short ({titr_points} pts) titration; not listed"
 
