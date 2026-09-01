@@ -287,7 +287,7 @@ class MSout_np:
 
         self.HDR = MsoutHeaderData(self.msout_fp)
         if not self.HDR.method:
-            return("msout file not found.")
+            sys.exit("msout file not found.")
 
         self.CI = ConfInfo(self.h3_fp, verbose=self.verbose)
         # load the self.CI.conf_info lookup array:
@@ -296,8 +296,7 @@ class MSout_np:
                      self.with_tautomers,
                      residue_kinds=self.res_kinds)
         if self.CI.conf_info is None:
-            print("[DATA MISMATCH]: Conformer info could not be loaded.")
-            return
+            sys.exit("[DATA MISMATCH]: Conformer info could not be loaded.")
 
         # copy from CI.conf_info
         self.conf_info = self.CI.conf_info
@@ -443,9 +442,12 @@ class MSout_np:
                     else:  # occ
                         count = float(fields[1])
                     flipped = [int(c) for c in fields[2].split()]
-                    for ic in flipped:
-                        ir = self.HDR.iconf2ires[ic]
-                        current_state[ir] = ic
+                    try:
+                        for ic in flipped:
+                            ir = self.HDR.iconf2ires[ic]
+                            current_state[ir] = ic
+                    except KeyError:
+                        sys.exit("[DATA MISMATCH]: Header data does not match MC row data in msout file.")
 
                     ms_vec.append([list(current_state), state_e, count])
 
@@ -545,9 +547,12 @@ class MSout_np:
                     else:
                         count = float(fields[1])
                     flipped = [int(c) for c in fields[2].split()]
-                    for ic in flipped:
-                        ir = self.HDR.iconf2ires[ic]
-                        current_state[ir] = ic
+                    try:
+                        for ic in flipped:
+                            ir = self.HDR.iconf2ires[ic]
+                            current_state[ir] = ic
+                    except KeyError:
+                        sys.exit("[DATA MISMATCH]: Header data does not match MC row data in msout file.")
 
                     # flipped iconfs from non-ionizable or fixed res
                     # => same protonation state: increment totE & count;
@@ -683,9 +688,12 @@ class MSout_np:
                     else:
                         count = float(fields[1])
                     flipped = [int(c) for c in fields[2].split()]
-                    for ic in flipped:
-                        ir = self.HDR.iconf2ires[ic]
-                        current_state[ir] = ic
+                    try:
+                        for ic in flipped:
+                            ir = self.HDR.iconf2ires[ic]
+                            current_state[ir] = ic
+                    except KeyError:
+                        sys.exit("[DATA MISMATCH]: Header data does not match MC row data in msout file.")
 
                     if ro == 0:
                         #ms_vec.append([ro, list(current_state), state_e, count])
