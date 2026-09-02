@@ -588,16 +588,6 @@ def mccepdbs_to_pdbs(out_dir: Path, s2_rename_dict: dict, rm_prefix: str = None)
     return
 
 
-def get_output_dirname(ph: Union[int, float], eh: Union[int, float], n_top: int) -> str:
-    """Use given ph to create a path with the required number format,
-    to match the precision in the msout file name.
-    """
-    if type(ph) is int:
-        return OUT_DIR + f"_ph{ph}eh{eh}_top{n_top}"
-
-    return OUT_DIR + f"_ph{ph:.2f}eh{eh:.2f}_top{n_top}"
-
-
 # KEEP?
 def extend_residue_kinds(res_kinds: list) -> list:
     """Return the IONIZABLES_RES list augmented with new kinds in 'res_kinds'
@@ -646,9 +636,7 @@ def sort_resoi_list(res_kinds: list) -> list:
 class TopNCmsPipeline:
     def __init__(self, args: Union[Namespace, dict]):
         self.inpdb: str = "prot.pdb"
-        self.int_ph: bool = True
         self.mcce_files: tuple = None
-        self.outname: str = None
         self.output_dir: Path = None
         self.mso: MSout_np = None
         self.top_cms: list = None
@@ -669,7 +657,6 @@ class TopNCmsPipeline:
 
         # to get the output name with same input ph format
         if "." in str(args.ph):
-            self.int_ph = False
             args.ph = float(args.ph)
             args.eh = float(args.eh)
         else:
@@ -690,15 +677,22 @@ class TopNCmsPipeline:
         return residue_kinds
 
     def setup_environment(self):
-        self.outname = get_output_dirname(self.args.ph, self.args.eh, self.args.n_top)
-        self.output_dir = self.mcce_dir.joinpath(self.outname)
+        # Validate & return the needed mcce file paths: h3_fp, step2_fp, msout_fp:
+        self.mcce_files = get_mcce_filepaths(self.mcce_dir, self.args.ph, self.args.eh)
+        msout_fp_stem = self.mcce_files[2].stem[:-2].lower()
+        if len(msout_fp_stem) > 6:   # e.g.: not 'pH7eH0' (ints)
+            self.args.ph = float(self.args.ph)
+            self.args.eh = float(self.args.eh)
+        # output dirname will have the same format (no data loss on fractional ph/eh)
+        outname = OUT_DIR + f"_{msout_fp_stem}_top{self.args.n_top}"
+        self.output_dir = self.mcce_dir.joinpath(outname)
         self.output_dir.mkdir(exist_ok=True)
 
         return
 
     def display_options(self):
-        phstr = f"{self.args.ph:.0f}" if self.int_ph else f"{self.args.ph:.2f}"
-        ehstr = f"{self.args.eh:.0f}" if self.int_ph else f"{self.args.eh:.2f}"
+        phstr = f"{self.args.ph:.0f}" if type(self.args.ph) is int else f"{self.args.ph:.2f}"
+        ehstr = f"{self.args.eh:.0f}" if type(self.args.eh) is int else f"{self.args.eh:.2f}"
         msg = f"""
 Input options:
   Run dir: {self.mcce_dir!s};
@@ -710,17 +704,15 @@ Input options:
   Keep waters? {self.args.wet};
   Reduced number of ms data? {self.args.reduced_ms_rows};
   Write pdbs? {not self.args.no_pdbs};
-  Output folder: {self.output_dir}
+  Convert to pdb format? {self.args.pdb_format};
+  Output folder: {self.output_dir!s}
 """
         print(msg)
     
         return
 
     def load_data(self):
-        # Logic to get file paths and instantiate MSout_np
-        # h3_fp, step2_fp, msout_fp
-        self.mcce_files = get_mcce_filepaths(self.mcce_dir, self.args.ph, self.args.eh)
-        # using default mc_load="all": load ms and cms data:
+        # Instantiate MSout_np using default mc_load="all": load ms and cms data:
         logger.info("Loading ms and cms data into MSout_np")
         self.mso = MSout_np(
             self.mcce_files[0],

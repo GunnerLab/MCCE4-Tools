@@ -295,7 +295,8 @@ def parse_mcce_line(pdb_coord_line: str) -> List:
 
 
 def get_mcce_filepaths(mcce_dir: Path, ph: str = "7", eh: str = "0") -> Tuple:
-    """Constructs and validates paths for these mcce output files:
+    """Constructs and validates paths for these mcce output files, which are 
+    required for microstates loading/analysis:
     head3.lst, step2_out.pdb and the 'msout file' in the ms_out subfolder.
 
     Args:
