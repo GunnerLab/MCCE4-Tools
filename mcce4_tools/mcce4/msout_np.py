@@ -565,9 +565,9 @@ class MSout_np:
                             cms_vec[ro][3] += count
                             cms_vec[ro][2] = cms_vec[ro][1] / cms_vec[ro][3]
                         else:
-                            # cms_vec ::  [state, totE, np.nan, occ]
+                            # cms_vec ::  [state, totE, 0, occ]; 0::np.nan
                             cms_vec[ro][1] += state_e
-                            cms_vec[ro][2] = np.nan
+                            cms_vec[ro][2] = 0
                             cms_vec[ro][3] += count
 
                     else:  # new crg ms
@@ -575,7 +575,7 @@ class MSout_np:
                         if self.HDR.is_monte:
                             cms_vec.append([[0] * self.n_resids, state_e * count, state_e, count])
                         else:
-                            cms_vec.append([[0] * self.n_resids, state_e, np.nan, count])
+                            cms_vec.append([[0] * self.n_resids, state_e, 0, count])
                         # update cms_vec state:
                         curr_info = self.conf_info[current_state]
                         upd = curr_info[np.where(curr_info[:, -2] != -1)][:, -2:]  # -> [resix, crg]
@@ -716,9 +716,9 @@ class MSout_np:
                             cms_vec[ro][4] += count
                             cms_vec[ro][3] = cms_vec[ro][2] / cms_vec[ro][4]
                         else:
-                            # cms_vec ::  [idx, state, totE, np.nan, occ]
+                            # cms_vec ::  [idx, state, totE, 0, occ]; 0:: np.nan
                             cms_vec[ro][2] += state_e
-                            cms_vec[ro][3] = np.nan
+                            cms_vec[ro][3] = 0
                             cms_vec[ro][4] += count
                     else:
                         ro += 1  # new cms
@@ -734,7 +734,7 @@ class MSout_np:
                         else:
                             cms_vec.append([ro,
                                             [0] * self.n_resids,
-                                            state_e, np.nan, count])
+                                            state_e, 0, count])   # 0::np.nan
                         # update cms_vec state:
                         curr_info = self.conf_info[current_state]
                         upd = curr_info[np.where(curr_info[:, -2] != -1)][:, -2:]  # -> [resix, crg]
@@ -806,7 +806,7 @@ class MSout_np:
         """Assign unique crg ms info to self.uniq_cms and assign count of unique ms to self.N_cms_uniq.
         The values of MSout.uniq_cms, the populated array, depend on the msout method:
           - [state, totE, averE, occ, count] if MONTERUNS
-          - [state, totE, np.nan, occ, np.nan] if ENUMERATE
+          - [state, totE, 0, occ, 0] if ENUMERATE
         """
         subtot_d = {}
         if self.HDR.is_monte:
@@ -833,24 +833,24 @@ class MSout_np:
                 reverse=True,
             ), dtype=object)
         else:
-            # cms in :: [state, totE, np.nan, occ]
+            # cms in :: [state, totE, 0, occ]
             for _, itm in enumerate(self.all_cms):
                 key = tuple(itm[0])
                 if key in subtot_d:
                     subtot_d[key][1] += itm[1]
-                    subtot_d[key][2] = np.nan
+                    subtot_d[key][2] = 0
                     subtot_d[key][3] += itm[3]
                 else:
                     subtot_d[key] = itm.copy()
 
             self.N_cms_uniq = len(subtot_d)
 
-            # cms out :: [state, totE, np.nan, occ, np.nan]  to keep same shape
+            # cms out :: [state, totE, 0, occ, 0]; 0s:  to keep same dim
             # sort by occ:
             self.uniq_cms = np.array(
                 sorted(
                     [
-                    [list(k), subtot_d[k][1], subtot_d[k][2], subtot_d[k][3], np.nan]
+                    [list(k), subtot_d[k][1], subtot_d[k][2], subtot_d[k][3], 0]
                     for k in subtot_d
                     ],
                     key=lambda x: x[-2], reverse=True), dtype=object)
@@ -861,7 +861,7 @@ class MSout_np:
         """Assign unique conf ms info to self.uniq_ms and assign count of unique ms to self.N_ms_uniq.
         The values of MSout.uniq_ms, the populated array, depend on the msout method:
           - [state, state.e, occ, count] if MONTERUNS
-          - [state, state.e, occ, np.nan] if ENUMERATE
+          - [state, state.e, occ, 0] if ENUMERATE
         """
         if self.mc_load != "conf":
             sys.exit("CRITICAL: Wrong call to '_get_uniq_conf': 'mc_load' must be 'conf'.")
@@ -892,9 +892,9 @@ class MSout_np:
             #              https://github.com/GunnerLab/MCCE4-Tools/issues/22
             self.N_ms_uniq = len(self.all_ms)
             # ms in  :: [state, state.e, occ]
-            # ms out :: [state, state.e, occ, np.nan]  to keep same shape
+            # ms out :: [id, state, state.e, occ, 0]  # 0 instead of np.nan; to maintain dims
             # sort by occ:
-            self.uniq_ms = np.array(sorted([[ms[0], ms[1], ms[2], np.nan] for ms in self.all_ms],
+            self.uniq_ms = np.array(sorted([[ms[0], ms[1], ms[2], 0] for ms in self.all_ms],
                                            key=lambda x: x[-2], reverse=True), dtype=object)
 
         return
@@ -905,7 +905,6 @@ class MSout_np:
         In this case, each of their items starts with an index,
         which can be used to match conf ms to each unique cms.
         """
-        print("Getting unique cms array.")
         subtot_d = {}
         if self.HDR.is_monte:
             # vec :: [idx, state, totE, averE, count]
@@ -941,37 +940,36 @@ class MSout_np:
                 dtype=object,
             )
         else:
-            # cms in  :: [idx, state, totE, np.nan, occ]
+            # cms in  :: [idx, state, totE, 0, occ]
             for _, itm in enumerate(self.all_cms):
                 key = tuple(itm[1])
                 if key in subtot_d:
                     subtot_d[key][2] += itm[2]
-                    subtot_d[key][3] = np.nan
+                    subtot_d[key][3] = 0
                     subtot_d[key][4] += itm[4]
                 else:
                     subtot_d[key] = itm.copy()
             self.N_cms_uniq = len(subtot_d)
 
-            # cms out :: [id, state, totE, np.nan, occ, np.nan]  to keep same shape
+            # cms out :: [id, state, totE, 0, occ, 0] ; 0 used instead of np.nan to keep same shape
             # sort by occ:
             self.uniq_cms = np.array(
                 sorted(
                     [
-                    [subtot_d[k][0], list(k), subtot_d[k][1], subtot_d[k][2], subtot_d[k][3], np.nan]
+                    [subtot_d[k][0], list(k), subtot_d[k][1], subtot_d[k][2], subtot_d[k][3], 0]
                     for k in subtot_d
                     ],
                     key=lambda x: x[-2], reverse=True), dtype=object)
         return
 
     def _get_uniq_all_ms(self):
-        print("Getting unique ms array.")
         if self.method == "ENUMERATE":
             #print("The conformer microstates returned by the analytical method are unique.")
             self.N_ms_uniq = len(self.all_ms)
-            # ms out :: [id, state, state.e, occ, np.nan]
+            # ms out :: [id, state, state.e, occ, 0]  # 0 :: np.nan; to maintain output dims
             # sort by occ:
             self.uniq_ms = np.array(
-                sorted([[ms[0], ms[1], ms[2], np.nan] for ms in self.all_ms],
+                sorted([[ms[0], ms[1], ms[2], 0] for ms in self.all_ms],
                        key=lambda x: x[-2], reverse=True
                        ),
                     dtype=object
@@ -1148,12 +1146,13 @@ class MSout_np:
                 N = self.N_ms_uniq
 
         if process_top == 3:
+            top_cms = []
+            top_ms = {}
             print(f"Processing unique cms & ms for requested top {N:,} at {min_occ = :.1%}")
             topN_cms_occ = self.uniq_cms[np.where(self.uniq_cms[:, -2] > min_occ)][:N]
             if len(topN_cms_occ):
                 top_cms = topN_cms_occ.tolist()
                 print(f"Number of top cms returned: {len(top_cms):,}")
-                top_ms = {}
                 for ro in topN_cms_occ[:,0]:
                     matched_ms = self.all_ms[np.where(self.all_ms[:, 0] == ro)]
                     n_matched = len(matched_ms)
@@ -1171,23 +1170,21 @@ class MSout_np:
                                                 key=lambda x: x[-1], reverse=True)[0]
                         else:
                             top_ms[ro] = matched_ms[0]
-                return top_cms, top_ms
-            else:
-                return [], None
+            return top_cms, top_ms
 
         if process_top == 2:  # cms only
+            top_cms = []
             print(f"Processing unique cms for requested top {N} at {min_occ = :.1%}")
             topN_cms_occ = self.uniq_cms[np.where(self.uniq_cms[:, -2] > min_occ)][:N]
-            top_cms = []
             if len(topN_cms_occ):
                 top_cms = topN_cms_occ.tolist()
                 print(f"Number of top cms returned: {len(top_cms):,}")
             return top_cms, None
 
         if process_top == 1:  # ms only
+            top_ms = []
             print(f"Processing unique ms for requested top {N} at {min_occ = :.1%}")
             topN_ms_occ = self.uniq_ms[np.where(self.uniq_ms[:, -2] > min_occ)][:N]
-            top_ms = []
             if len(topN_ms_occ):
                 top_ms = topN_ms_occ.tolist()
                 print(f"Number of top ms returned: {len(top_ms):,}")
