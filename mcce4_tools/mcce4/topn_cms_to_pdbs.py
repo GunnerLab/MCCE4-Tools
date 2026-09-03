@@ -732,9 +732,11 @@ Input options:
             N=self.args.n_top, min_occ=self.args.min_occ
         )
         if not len(self.top_cms):
-            sys.exit(f"NO DATA: Occupancies below threshold {self.args.min_occ:.2%}")
-
+            print(f"NO DATA: Occupancies below threshold {self.args.min_occ:.2%}")
+        # removed: else to get empty file if not data;
+        # empty file needed for downstream apps to indicate 'topms' tool was run
         self.top_df = self.mso.top_cms_df(self.top_cms)  # Initial DF
+
         show_elapsed_time(
             start_time, info="Getting unique charge ms and associated conf ms data"
         )
@@ -791,13 +793,15 @@ Input options:
         self.load_data()
         print(self.mso)
         self.process_microstates()
-        out_time = time.time()
-        if not self.args.no_pdbs:
-            self.write_mcce_pdbs()
-            if self.args.pdb_format:
-                self.convert_pdbs()
-        self.write_tsv_and_summary()
-        show_elapsed_time(out_time, info="Writing all output files")
+        if self.top_df is not None:
+            out_time = time.time()
+            if not self.args.no_pdbs:
+                self.write_mcce_pdbs()
+                if self.args.pdb_format:
+                    self.convert_pdbs()
+            self.write_tsv_and_summary()
+            show_elapsed_time(out_time, info="Writing all output files")
+
         show_elapsed_time(start_time, info="Entire pipeline")
 
         return
