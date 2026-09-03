@@ -345,7 +345,7 @@ def finalize_topN_df(top_df: pd.DataFrame) -> pd.DataFrame:
         df["chain"] = get_chain(df)
         df["crg_changes"] = get_changing_crg(df)
     else:
-        sys.exit(f"Critical: No residue data! [Function: finalize_topN_df: {top_df.shape = }]")
+        print(f"Warning from `finalize_topN_df`: No data.")
 
     return df
 
