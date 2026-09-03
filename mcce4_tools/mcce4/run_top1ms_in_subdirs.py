@@ -72,9 +72,10 @@ args_full = {
 }
 
 
-topms1 = "topms_ph7.00eH0.00_top1/top1_ms.tsv".lower()
+topms1 = "topms_ph7.00eh0.00_top1"
+topms2 = "topms_ph7eh0_top1"
+# have uppercase letters:
 msout1 = "ms_out/pH7.00eH0.00ms.txt"
-topms2 = "topms_ph7eH0_top1/top1_ms.tsv".lower()
 msout2 = "ms_out/pH7eH0ms.txt"
 
 
@@ -84,10 +85,10 @@ def main(args: dict = args_full):
     for dp in current_dir.glob("*/*/ms_out"):  # subdirs/pdb_dirs/ms_out
         print(f"CHECKING {dp.parent.name}...")
         # check for final output:
-        tsvs = [dp.parent.joinpath(topms1), dp.parent.joinpath(topms2)]
-        fps = [tsv for tsv in tsvs if tsv.exists()]
-        if fps:
-            print(f"  SKIPPING {dp.parent.name}: found 'top1_ms.tsv' in {fps[0].parent.name}")
+        fps = list(dp.parent.glob("topms_ph7*eh0*_top1/top1_ms.tsv"))
+        fp_ok = [fp for fp in fps if (fp.parent.name==topms1 or fp.parent.name==topms2)]
+        if fp_ok:
+            print(f"  SKIPPING {dp.parent.name}: found 'top1_ms.tsv': {fp_ok[0]!s}")
             continue
 
         # check for the expected msout file:

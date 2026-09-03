@@ -1200,6 +1200,9 @@ class MSout_np:
                            with weighted correlation.
           - cms_wc_keep_E: Set to True to keep the energy column in cms_wc_format mode.
         """
+        if not top_cms:
+            print("Warning: The 'topN' dataframe will be created without data.")
+
         fixed_free_res = None
         n_ffres = 0
         if not cms_wc_format:
