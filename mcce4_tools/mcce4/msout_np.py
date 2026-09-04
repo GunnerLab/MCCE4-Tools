@@ -215,6 +215,10 @@ class ConfInfo:
         return val
 
 
+
+NO_LOADING_POSSIBLE = "CRITICAL: No ms data due to initial input validation or data loaders failures."
+
+
 # TODO: test res_kinds with mc_load="conf"
 class MSout_np:
     """Class to load 'msout file' to obtain MCCE microstates data in numpy.arrays.
@@ -273,6 +277,9 @@ class MSout_np:
         if mc_load not in ["conf", "crg", "all"]:
             print("STOP: No processing function associated with:", mc_load)
             return
+        # flag to prevent loading; reset depending on status of loaders of:
+        # msout file header and conformer data:
+        self.status: bool = True
 
         self.verbose = verbose
         self.h3_fp = Path(head3_file)
@@ -285,23 +292,22 @@ class MSout_np:
         self.res_kinds: list = None
         self.validate_kwargs(mc_load, res_kinds, with_tautomers)
 
-        self.HDR = MsoutHeaderData(self.msout_fp)
-        if not self.HDR.method:
-            sys.exit("msout file not found.")
+        if self.status:
+            self.HDR = MsoutHeaderData(self.msout_fp)
+            if not self.HDR.method:
+                print("CRITICAL: Incomplete msout file; Possible cause: pdb has no ionizable residues.")
+                self.status = False
 
-        self.CI = ConfInfo(self.h3_fp, verbose=self.verbose)
-        # load the self.CI.conf_info lookup array:
-        # fields: iconf:0, resid:1, in_kinds:2, is_ioniz:3, is_fixed:4, is_free:5, resix:6, crg:7
-        self.CI.load(self.HDR.iconf2ires, self.HDR.fixed_iconfs,
-                     self.with_tautomers,
-                     residue_kinds=self.res_kinds)
-        if self.CI.conf_info is None:
-            sys.exit("[DATA MISMATCH]: Conformer info could not be loaded.")
-
-        # copy from CI.conf_info
-        self.conf_info = self.CI.conf_info
-        self.cms_resids = self.CI.cms_resids  # :: list of resids defining a cms
-        self.n_resids = self.CI.n_resids
+        if self.status:
+            self.CI = ConfInfo(self.h3_fp, verbose=self.verbose)
+            # load the self.CI.conf_info lookup array:
+            # fields: iconf:0, resid:1, in_kinds:2, is_ioniz:3, is_fixed:4, is_free:5, resix:6, crg:7
+            self.CI.load(self.HDR.iconf2ires, self.HDR.fixed_iconfs,
+                        self.with_tautomers,
+                        residue_kinds=self.res_kinds)
+            if self.CI.conf_info is None:
+                print("CRITICAL - DATA MISMATCH: Conformer info could not be loaded.")
+                self.status = False
 
         # attributes populated by the 'load' functions:
         self.N_space: int = None     # size of state space
@@ -317,6 +323,15 @@ class MSout_np:
         self.N_ms_uniq: int = None  # unique number of conf ms
         self.N_cms_uniq: int = None  # unique number of crg ms
 
+        if not self.status:
+            print(NO_LOADING_POSSIBLE)
+            return
+        
+        # copy from CI.conf_info
+        self.conf_info = self.CI.conf_info
+        self.cms_resids = self.CI.cms_resids  # :: list of resids defining a cms
+        self.n_resids = self.CI.n_resids
+
         # load accepted states:
         if self.mc_load == "conf":
             start_t = time.time()
@@ -326,7 +341,7 @@ class MSout_np:
             # check if any cms res:
             if not self.cms_resids:
                 print("STOP: The conformers data indicate that the protein either has",
-                      "no ionizable residues or that they're all 'fixed-off' ('mc_load' can only be 'conf').")
+                    "no ionizable residues or that they're all 'fixed-off' ('mc_load' can only be 'conf').")
                 return
 
             if self.mc_load == "crg":
@@ -352,7 +367,8 @@ class MSout_np:
             msg = ("Argument mc_load must be one of "
                    f"{loading_modes} "
                    "to load either conformer or charge microstates, or both.")
-            sys.exit(msg)
+            print(msg)
+            self.status = False
 
         if with_tautomers and self.mc_load == "conf":
             # not applicable (no cms returned), mc_load has precedence, reset:
@@ -779,6 +795,10 @@ class MSout_np:
           The equivalent function for conformers, `MSout_np.get_uniq_all_ms()`
           is available if needed.
         """
+        if not self.status:
+            print("CRITICAL: No ms data due to initial input validation or data loaders failures.")
+            return
+
         if self.mc_load == "conf":
             start_t = time.time()
             self._get_uniq_conf()
@@ -864,7 +884,8 @@ class MSout_np:
           - [state, state.e, occ, 0] if ENUMERATE
         """
         if self.mc_load != "conf":
-            sys.exit("CRITICAL: Wrong call to '_get_uniq_conf': 'mc_load' must be 'conf'.")
+            print("CRITICAL: Wrong call to '_get_uniq_conf': 'mc_load' must be 'conf'.")
+            return
 
         if self.HDR.is_monte:
             # ms in ::  [state, state.e, count]
@@ -1121,6 +1142,10 @@ class MSout_np:
           2. With 'all_ms_out' set to True: dict values are all related conf ms:
             > top_cms, top_ms_dict = msout_np.get_topN_data(all_ms_out=True)
         """
+        if not self.status:
+            print(NO_LOADING_POSSIBLE)
+            return
+
         print("Getting top N data.")
         # determine which topn data to return as per mc_load:
         which_top = {"conf":1, "crg":2, "all":3}
@@ -1303,6 +1328,10 @@ class MSout_np:
             A random sample of conformer or charge microstates in a list ([[selected index, selected ms]..]),
             or None if MSout_np was intantiated with an incompatible 'mc_load' mode.
         """
+        if not self.status:
+            print(NO_LOADING_POSSIBLE)
+            return [[]]
+
         ms_kind = ms_kind.lower()
         if ms_kind not in ("ms", "cms"):
             print("Argument 'kind' must be one of 'ms' or 'cms'. Returning None.")
@@ -1405,6 +1434,9 @@ class MSout_np:
             return self._free_res_aver_crg_df_from_all_cms()
 
     def __str__(self):
+        if not self.status:
+            return(NO_LOADING_POSSIBLE)
+
         out = (f"\nConformers: {self.CI.n_confs:,}\n"
                 f"Free residues: {len(self.HDR.free_residues):,}\n"
                 f"Fixed residues: {len(self.HDR.fixed_iconfs):,}\n"
