@@ -326,6 +326,9 @@ def finalize_topN_df(top_df: pd.DataFrame) -> pd.DataFrame:
     - Add chain
     - Add crg_changes
     """
+    if top_df is None:
+        return
+
     try:
         top_df.drop(["idx"], axis=0, inplace=True)
     except KeyError:
@@ -365,6 +368,12 @@ def topNdf_to_tsv(
     """Save topN_df to a tab-separated-values (.tsv) file in output_dir.
     Return its filepath.
     """
+    if top_df is None:
+        # create empty file:
+        tsv_fp = output_dir.joinpath(f"top{n_top}_ms.tsv")
+        tsv_fp.write_text("No data in input df\tempty\tfile\n")
+        return tsv_fp
+
     if res_kinds is None:
         tsv_fp = output_dir.joinpath(f"top{n_top}_ms.tsv")
         top_df.to_csv(tsv_fp, sep="\t", index=False)
@@ -791,16 +800,21 @@ Input options:
         self.setup_environment()
         self.display_options()
         self.load_data()
-        print(self.mso)
-        self.process_microstates()
-        if self.top_df is not None:
-            out_time = time.time()
-            if not self.args.no_pdbs:
-                self.write_mcce_pdbs()
-                if self.args.pdb_format:
-                    self.convert_pdbs()
-            self.write_tsv_and_summary()
-            show_elapsed_time(out_time, info="Writing all output files")
+        if self.mso.status:
+            print(self.mso)
+            self.process_microstates()
+            if self.top_df is not None:
+                out_time = time.time()
+                if not self.args.no_pdbs:
+                    self.write_mcce_pdbs()
+                    if self.args.pdb_format:
+                        self.convert_pdbs()
+                self.write_tsv_and_summary()
+                show_elapsed_time(out_time, info="Writing all output files")
+        else:
+            # write empty file to indicate pdb was processed to downstream apps:
+            tsv_fp = topNdf_to_tsv(self.output_dir, None, self.args.n_top)
+            print(f"Saved empty file {tsv_fp!s} to indicate pdb was processed, yet yielded no data.")
 
         show_elapsed_time(start_time, info="Entire pipeline")
 
