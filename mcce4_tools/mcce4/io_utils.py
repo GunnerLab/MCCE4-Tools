@@ -97,6 +97,7 @@ class MsoutHeaderData:
         """
         with open(self.msout_fp) as fh:
             head = list(islice(fh, N_HDR))
+
         for i, line in enumerate(head, start=1):
             if i == 1:
                 fields = line.split(",")
@@ -116,7 +117,9 @@ class MsoutHeaderData:
                 if key.strip() != "METHOD" or self.method not in MC_METHODS:
                     msg = (f"File {self.msout_fp!s} is not a valid microstate file; "
                            "method: {self.method}")
-                    sys.exit(msg)
+                    print(msg)
+                    self.method = "Invalid"
+                    return
 
                 self.is_monte = self.method == "MONTERUNS"
 
@@ -215,9 +218,13 @@ def ionizable_res_ratio_from_protinfo_rpt(pdb_dir: str) -> float:
     return sum(found)
 
 
-def table_to_df(file_fp: str) -> pd.DataFrame:
+def table_to_df(file_fp: str) -> Union[pd.DataFrame, None]:
     """Load a fixed-width table in to a pandas.DataFrame."""
-    return pd.read_fwf(file_fp)
+    try:
+        return pd.read_fwf(file_fp)
+    except Exception as err:
+        print(f"Could not load {file_fp.name} data using pd.read_fwf:\n{err}")
+        return None
 
 
 def reader_gen(fpath: Path):
@@ -294,7 +301,7 @@ def parse_mcce_line(pdb_coord_line: str) -> List:
         ]
 
 
-def get_mcce_filepaths(mcce_dir: Path, ph: str = "7", eh: str = "0") -> Tuple:
+def get_mcce_filepaths(mcce_dir: Path, ph: str = "7", eh: str = "0") -> Union[Tuple, None]:
     """Constructs and validates paths for these mcce output files, which are 
     required for microstates loading/analysis:
     head3.lst, step2_out.pdb and the 'msout file' in the ms_out subfolder.
@@ -305,17 +312,18 @@ def get_mcce_filepaths(mcce_dir: Path, ph: str = "7", eh: str = "0") -> Tuple:
         eh (str, "0"): The Eh value for the desired msout file.
 
     Returns:
-        A 3-tuple containing Path objects for head3.lst, step2_out.pdb,
-        and the located msout file.
-        Note: The msout filename will have one of the two possible formats
+        A 3-tuple containing Path objects for existing head3.lst, step2_out.pdb,
+        and the located msout files, or None if any of them is missing.
+
+    Note: The msout filename will have one of the two possible formats
         depending on the MCCE version used when the ms_out/ file(s) were generated;
         it could be pH7.00eH0.00ms.txt or pH7eH0ms.txt.
 
-    Raises:
-        SystemExit: If any of the required files are not found.
-
     Call example with the default ph, eh:
-        h3_fp, step2_fp, msout_fp = get_mcce_filepaths(mcce_dir)
+        # results must be checked before expansion (no longer sys.exit behaviour):
+        ms_files_fps = get_mcce_filepaths(mcce_dir)
+        if ms_files_fps is not None:
+            h3_fp, step2_fp, msout_fp = ms_files_fps
     """
     ok = True
     out = []
@@ -324,7 +332,8 @@ def get_mcce_filepaths(mcce_dir: Path, ph: str = "7", eh: str = "0") -> Tuple:
         fp = mcce_dir.joinpath(fname)
         ok = ok and fp.exists()
         if not ok:
-            sys.exit(f"Missing: {fp!s}")
+            print(f"MISSING: {fp.name} in {mcce_dir!s}")
+            return None
 
         if fname == "ms_out":
             ph = float(ph)
@@ -344,9 +353,10 @@ def get_mcce_filepaths(mcce_dir: Path, ph: str = "7", eh: str = "0") -> Tuple:
                     out.append(msout_fp)
                 else:
                     tried.append(msout_fp.name)
-                    msg = (f"Not found: msout file for pH={ph:.0f}, eH={eh:.0f} "
+                    msg = (f"MISSING: msout file for pH={ph:.0f}, eH={eh:.0f} "
                            f"in either of these formats: {tried}.")
-                    sys.exit(msg)
+                    print(msg)
+                    return None
         else:
             out.append(fp)
 
