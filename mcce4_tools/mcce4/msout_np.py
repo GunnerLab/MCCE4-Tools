@@ -294,8 +294,8 @@ class MSout_np:
 
         if self.status:
             self.HDR = MsoutHeaderData(self.msout_fp)
-            if not self.HDR.method:
-                print("CRITICAL: Incomplete msout file; Possible cause: pdb has no ionizable residues.")
+            if self.HDR.method == "Invalid":
+                print("CRITICAL: Incomplete or invalid msout file; Possible cause: pdb has no ionizable residues.")
                 self.status = False
 
         if self.status:
