@@ -138,7 +138,7 @@ def get_res_heatmap(pairs_res_csv: Path,
     res_pairs_df = res_pairs_df.sort_values(by=["di","ai"])
     res_pairs_df = res_pairs_df.rename(columns={"res_d":"Donor",
                                                 "res_a":"Acceptor"})
-
+    res_pairs_df = res_pairs_df.drop(columns=["di","ai"])
     matrix_df = res_pairs_df.pivot(index="Donor",
                                    columns="Acceptor",
                                    values="occ").fillna(0)
