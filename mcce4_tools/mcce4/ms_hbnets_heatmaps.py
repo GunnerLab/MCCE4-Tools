@@ -171,7 +171,7 @@ def cli_parser():
     p = ArgumentParser(prog="ms_hbnets_heatmaps",
         description="""
 Produces heatmaps from 'ms_hbnets' output files. Heatmaps implemented:
- - Donor/acceptor pairs co-occurence map (visualization of hb_pairs_res_pH*.csv file).
+ - Residue donor/acceptor pairs co-occurrence map (visualization of hb_pairs_res_pH*.csv file).
 """,
     usage="""ms_hbnets_heatmaps
        ms_hbnets_heatmaps -mcce-dir <dirpath>
@@ -186,7 +186,7 @@ Produces heatmaps from 'ms_hbnets' output files. Heatmaps implemented:
                     help="MCCE run directory; Default: %(default)s",
                     )
     p.add_argument("-map-kind",
-                    default="co_occurence",
+                    default="co_occurrence",
                     type=str,
                     help="Kind of heatmap (currently only one choice); Default: %(default)s",
                     )
@@ -204,7 +204,7 @@ Produces heatmaps from 'ms_hbnets' output files. Heatmaps implemented:
     p.add_argument("-fig-size",
                    type=parse_tuple,
                    default=f"{RESMAP_FIGSIZE[0]},{RESMAP_FIGSIZE[1]}",
-                   help="Figure size for the donor/acceptor co-occurence heatmap; Default: %(default)s"
+                   help="Figure size for the residue donor/acceptor co-occurrence heatmap; Default: %(default)s"
                     )
     p.add_argument("-occ-min",
                    type=float,
@@ -217,16 +217,15 @@ Produces heatmaps from 'ms_hbnets' output files. Heatmaps implemented:
 def cli(argv=None):
     p = cli_parser()
     args = p.parse_args(argv)
-    # print(f" cli args = \n{args}\n")
 
     mcce_dir = Path(args.mcce_dir).resolve()
 
-    if args.map_kind != "co_occurence":
+    if args.map_kind != "co_occurrence":
         print("Only one kind of heatmap is currently implemented: keep the default value.")
         return
 
-    # look for the file in the calling dir: hb_pairs_res_pH7.00eH0.00.csv
-    # most likely format: float:
+    # Look for the file in the calling dir: hb_pairs_res_pH7.00eH0.00.csv
+    # using the most likely format first (floats):
     pairs_res_csv = mcce_dir.joinpath(f"hb_pairs_res_pH{args.ph:.2f}eH{args.eh:.2f}.csv")
     if not pairs_res_csv.exists():
         pairs_res_csv = mcce_dir.joinpath(f"hb_pairs_res_pH{args.ph:.0f}eH{args.eh:.0f}.csv")
