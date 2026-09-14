@@ -25,11 +25,10 @@ except ImportError as e:
     print("Oops! Forgot to activate an appropriate environment?\n", e)
     sys.exit(1)
 
-
 plt.ioff()
 
 
-HEATMAP_SIZE = (20, 8)
+HEATMAP_SIZE = (16, 8)
 
 
 def energy_distribution(
@@ -176,6 +175,8 @@ def corr_heatmap(
     save_name: str = "corr.png",
     check_allzeros: bool = True,
     show: bool = False,
+    include_values: bool = True,
+    fontsize: int = 10,
     lower_tri=False,
     fig_size: Tuple[float, float] = HEATMAP_SIZE,
 ):
@@ -201,10 +202,6 @@ def corr_heatmap(
             print("Warning: All off-diagonal correlation values are 0: not plotting.")
             return
 
-    if df_corr.shape[0] > 14 and fig_size == HEATMAP_SIZE:
-        print("Warning: With a matrix size > 14 x 14, the fig_size argument",
-              f"should be > {HEATMAP_SIZE}.")
-
     n_resample = 8
     top = mpl.colormaps["Reds_r"].resampled(n_resample)
     bottom = mpl.colormaps["Blues"].resampled(n_resample)
@@ -218,9 +215,8 @@ def corr_heatmap(
     else:
         msk = None
 
-    fig = plt.figure(figsize=fig_size)
-    fs = 12  # font size
-    ax = sns.heatmap(
+    fig, ax = plt.subplots(1, 1, figsize=fig_size)
+    sns.heatmap(
         df_corr,
         mask=msk,
         cmap=cmap,
@@ -231,12 +227,13 @@ def corr_heatmap(
         linecolor="white",
         linewidths=0.01,
         fmt=".2f",
-        annot=True,
-        annot_kws={"fontsize": 10},
+        annot=include_values,
+        annot_kws={"fontsize": 8},
+        ax=ax,
     )
     ax.set(xlabel="", ylabel="")
-    plt.yticks(fontsize=fs)
-    plt.xticks(fontsize=fs)  # rotation=90)
+    plt.yticks(fontsize=fontsize)
+    plt.xticks(fontsize=fontsize)  # rotation=90)
     plt.tight_layout()
 
     if save_name:

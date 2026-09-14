@@ -40,6 +40,7 @@ from itertools import islice
 import logging
 from pathlib import Path
 import pickle
+from pprint import pformat
 import re
 import subprocess
 from subprocess import CompletedProcess, CalledProcessError
@@ -453,6 +454,25 @@ titr_type_files = ["entropy.out", "fort.38", "pK.out", "sum_crg.out"]
 
 # files with data over a titration, hdr: <ph> 0 1 2 3 4...
 titration_files = ["entropy.out", "fort.38", "sum_crg.out"]
+
+
+def dict2txt(d: dict, output_fp: Path, width: int = 100, text_to_comment:str = None):
+    """Save a python dict to .txt file.
+    Output file will have a commented header consisting of each line
+    in text_to_comment if given, e.g.:
+      # Purpose...    :: '# ' + line1
+      # Created: date :: '# ' + line2, etc
+    """
+    if text_to_comment:
+        txt = ""
+        for line in text_to_comment.splitlines():
+            txt += f"# {line}\n"
+        txt += pformat(d, width=width) + "\n"
+        output_fp.write_text(txt)
+    else:
+        output_fp.write_text(pformat(d, width=width) + "\n")
+
+    return
 
 
 def txt2dict(txt_fp: Path) -> dict:
