@@ -1,0 +1,18 @@
+#!/usr/bin/env python3
+
+"""
+Tool: ms_hbnets_heatmaps
+
+Description:
+Get the heatmap for the donor-acceptor residues in the hb_pairs_res_X.csv file,
+which is one of the output of the 'ms_hbnets' tool.
+
+(Only this kind is currently implemented.)
+"""
+import sys
+
+from mcce4.ms_hbnets_heatmaps import cli
+
+
+if __name__ == "__main__":
+    sys.exit(cli())

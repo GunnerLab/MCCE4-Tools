@@ -9,10 +9,9 @@ detect_hbonds tool.
 
 Updates:
 - 09-11-2026:
-  - Remove (most) sys.exit calls to enable iteration over folder w/o
+  - Removed (most) sys.exit calls to enable iteration over folder w/o
     stopping on individual run failure;
-  - Added heatmap for hah pairs occ;
-
+  - Fixed hb_pairs conf to residue reduction: sum -> max
 """
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
 from collections import defaultdict
@@ -125,7 +124,7 @@ def get_hb_paths(mcce_dir: Path, ph: str = "7", eh: str = "0") -> Tuple[Path, No
         return None
 
     pheh = msout_fp.stem[:-2]
-    # case where reduced function was already run;
+    # hah with msout signature: reduced for that microstate;
     # use the reduced file if found:
     hah_fp = mcce_dir.joinpath(fHAH_FNAME.format(pheh))
     if not hah_fp.exists():
@@ -154,6 +153,7 @@ def get_hb_paths(mcce_dir: Path, ph: str = "7", eh: str = "0") -> Tuple[Path, No
             hah_fp,
             mcce_dir.joinpath(fHAH_EXPANDED.format(pheh)),
             mcce_dir.joinpath(f"hb_pairs_{pheh}.csv"),
+            mcce_dir.joinpath(fPAIR_RES.format(pheh)),
             mcce_dir.joinpath(f"hb_states_{pheh}.csv"),
             mcce_dir.joinpath(f"hb_states_pairs_{pheh}.csv")
             )
@@ -305,8 +305,8 @@ def do_checks(mcce_dir: str, ph: str = "7", eh: str = "0") -> bool:
     needed_fps = get_hb_paths(run_dir, ph=ph, eh=eh)
     if needed_fps is None:
         return False
-    
-    _,_,_,_, hah_fp, _, pairs_csv, states_csv, _ = needed_fps
+
+    _,_,_,_, hah_fp, _, pairs_csv,_, states_csv, _ = needed_fps
 
     hah_da_pairs = get_da_pairs(hah_fp)
     if hah_da_pairs is None:
@@ -536,8 +536,8 @@ class MSout_hb:
 
         (self.h3_fp, self.step2_fp, self.msout_fp, self.fort38_fp,
          self.hah_fp, self.hah_ms_fp,
-         self.pairs_csv, self.states_csv,
-         self.states_pairs_csv) = needed_fps
+         self.pairs_csv, self.pairs_res_csv,
+         self.states_csv, self.states_pairs_csv) = needed_fps
 
         # ph, eh as string to match msout file:
         self.pheh_str = self.msout_fp.stem[:-2]
@@ -1141,39 +1141,37 @@ class MSout_hb:
             return f"{id1}_" + confid[5] + str(int(confid[6:-4]))
 
         if self.hb_pairs:
-            dfp = pd.DataFrame.from_dict(self.hb_pairs, orient="index",
+            df = pd.DataFrame.from_dict(self.hb_pairs, orient="index",
                                          columns=["count","occ"]).reset_index()
-            dfp["occ"] = dfp["occ"].round(6)
-            dfp["count"] = dfp["count"].astype("int32")
-            dfp[["Mi","Mj"]] = dfp["index"].apply(lambda x: pd.Series([int(x[0]),int(x[1])]))
-            dfp[["donor","acceptor"]] = dfp["index"].apply(
+            df["occ"] = df["occ"].round(6)
+            df["count"] = df["count"].astype("int32")
+            df[["Mi","Mj"]] = df["index"].apply(lambda x: pd.Series([int(x[0]),int(x[1])]))
+            df[["donor","acceptor"]] = df["index"].apply(
                 lambda x: pd.Series([self.iconf2confid[x[0]],self.iconf2confid[x[1]]]))
-            
-            pairs_out = dfp[["Mi","Mj","donor","acceptor","count","occ"]]
+            pairs_out = df[["Mi","Mj","donor","acceptor","count","occ"]]
             pairs_out = pairs_out.sort_values(by=["count", "Mi"], ascending=[False, True])
             pairs_out.to_csv(self.pairs_csv, index=False)
 
             # grouped by 1-letter res codes for loading in cytoscape
-            pairs_res_fp = fPAIR_RES.format(self.pheh_str)
-            dfp[["res_d","res_a"]] = dfp["index"].apply(
+            df[["res_d","res_a"]] = df["index"].apply(
                 lambda x: pd.Series([get_resid(self.iconf2confid[x[0]]),
                                      get_resid(self.iconf2confid[x[1]])]))
-            dfp_res = dfp.groupby(["res_d","res_a"], as_index=False).agg({"count": "sum",
-                                                                          "occ": "sum"})
-            dfp_res["count"] = dfp_res["count"].astype("int32")
-            dfp_res = dfp_res.sort_values(by="count", ascending=False)
-            dfp_res.to_csv(pairs_res_fp, index=False)
+            df_res = df.groupby(["res_d","res_a"], as_index=False).agg({"count": "max",
+                                                                        "occ": "max"})
+            df_res["count"] = df_res["count"].astype("int32")
+            df_res = df_res.sort_values(by="count", ascending=False)
+            df_res.to_csv(self.pairs_res_csv, index=False)
 
-            dfp = dfp.drop(columns=["index","donor","acceptor", "res_d","res_a"])
+            df = df.drop(columns=["index","donor","acceptor", "res_d","res_a"])
             # update expanded hah file with hb_pairs count, occ:
             hah_df = pd.read_csv(self.hah_ms_fp, comment="#")
-            hah_df = hah_df.merge(dfp, left_on=["Mi","Mj"], right_on=["Mi","Mj"])
+            hah_df = hah_df.merge(df, left_on=["Mi","Mj"], right_on=["Mi","Mj"])
             hah_df.to_csv(self.hah_ms_fp, index=False)
 
             print(("Main output files:\n"
                    f"  {self.pairs_csv!s} ({pairs_out.shape[0]:,} "
                    "rows): conformers hb pairs\n"
-                   f"  {pairs_res_fp!s} ({dfp_res.shape[0]:,} rows): "
+                   f"  {self.pairs_res_csv!s} ({df_res.shape[0]:,} rows): "
                    "residues hb pairs (for loading in Cytoscape)\n"))
 
         if self.hb_states:
@@ -1312,27 +1310,33 @@ from the microstates file given a mcce dir, pH & Eh.""",
 Load the H-bonding states instead of the H-bonding pairs (default)"""
                     )
     p.add_argument("-n_states",
-                    default=N_STATES,
-                    type=int,
-                    help="""
+                   default=N_STATES,
+                   type=int,
+                   help="""
 Number of H-bonding states to return, possibly (no effect without --load_states); Default: %(default)s"""
                     )
+    p.add_argument("-fig_size",
+                   type=tuple,
+                   default=(12,10),
+                   help="For donor/acceptor co-occurences heatmap; Default: %(default)s"
+                    )
     p.add_argument("--run_checks",
-                    action="store_true",
-                    default=False,
-                    help="Perform checks on main outputs and exit; Default: %(default)s"
-                    )
+                   action="store_true",
+                   default=False,
+                   help="Perform checks on main outputs and exit; Default: %(default)s"
+                   )
     p.add_argument("-v", "--verbose",
-                    action="store_true",
-                    default=False,
-                    help="Output more details and save 'dropped_fixedoff_confs.tsv' during reduction; Default: %(default)s"
-                    )
+                   action="store_true",
+                   default=False,
+                   help="Output more details and save 'dropped_fixedoff_confs.tsv' during reduction; Default: %(default)s"
+                   )
     return p
 
 
 def cli(argv=None):
     p = cli_parser()
     args = p.parse_args(argv)
+    print(f" cli args = \n{args}\n")
 
     if args.run_checks:
         status = do_checks(args.mcce_dir, args.ph, args.eh)
