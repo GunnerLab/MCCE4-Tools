@@ -53,7 +53,7 @@ MAX_INT = np.iinfo(np.int32).max
 # that are assigned from HIS confids in ConfInfo:
 HIS_crg2pseudo = {"01": 0, "02": 1, "+1": 2}
 HIS_convert = {"tauto": {0: "NE2", 1: "ND1", 2: 1},
-               "crg": {0: 0, 1: 0, 2: 1}}
+                 "crg": {0: 0,     1: 0,     2: 1}}
 
 
 def topN_loadtime_estimate(n_freeres: int) -> str:
@@ -100,7 +100,7 @@ class ConfInfo:
 
     def load(self, iconf2ires: Dict, fixed_iconfs: List[int], with_tautomers: bool,
              residue_kinds: List[str] = None):
-        """Popuate the 'conf_info' attribute (np.ndarray): a lookup 'table' for:
+        """Populate the 'conf_info' attribute (np.ndarray): a lookup 'table' for:
         conf_info: [iconf, resid, in_kinds, is_ioniz, is_fixed, is_free, resix, crg]
         """
         print("Populating the lookup array with head3.lst and msout file header data")
@@ -110,9 +110,9 @@ class ConfInfo:
             lines = h3.readlines()[1:]
 
         for line in lines:
-            # ignored columns: FL & fields past confid
+            # ignored columns: FL & fields past Crg
             iConf, confid, _, _, Crg, *_ = line.split()
-            iconf = int(iConf) - 1  # as python index
+            iconf = int(iConf) - 1  # as python 0-based index
             kind = confid[:3]
             resid = kind + confid[5:11]
             crg = int(float(Crg))
@@ -121,7 +121,6 @@ class ConfInfo:
                     # reset crg to pseudo crg:
                     # HIS01-> (0," NE2"); HIS02-> (1," ND1"); HIS+1 -> (2, 1)
                     crg = HIS_crg2pseudo[confid[3:5]]
-                    #crg = int(confid[4]) - 1 if confid[3] == "0" else 2
 
             is_ioniz = int(resid[:3] in IONIZABLES)
             in_kinds = 1  # preset to accept all if next condition is False
@@ -179,13 +178,19 @@ class ConfInfo:
         # [iconf, resid, in_kinds, is_ioniz, is_fixed, is_free, resix, crg]
         for i, (_, resid, _, _, _, is_free, *_) in enumerate(conf_info):
             try:
-                resix = self.cms_resids.index(resid)
                 if not is_free:
                     resix = -1
+                else:
+                    resix = self.cms_resids.index(resid)
             except ValueError:
                 # put sentinel flag for unmatched res:
                 resix = -1
             conf_info[i][-2] = resix
+            if resix == -1 and with_tautomers:
+                # undo the HIS tautomer conversion:
+                if resid[:3] == "HIS":
+                    crg = conf_info[i][-1]
+                    conf_info[i][-1] = HIS_convert["crg"][crg]
 
         if self.verbose:
             print(self.__fieldnames__())
@@ -1246,6 +1251,8 @@ class MSout_np:
                 fields = [it]  # current index
 
             state = itm[ix_state].copy()
+            # a state only has free res: fixed, ioniz that can have tautomers (HIS)
+            # must be converted as well
             for i, s in enumerate(state):
                 if self.with_tautomers:
                     if self.cms_resids[i][:3] == "HIS":

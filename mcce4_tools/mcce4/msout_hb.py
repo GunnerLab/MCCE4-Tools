@@ -362,9 +362,9 @@ class ConfInfo:
             lines = h3.readlines()[1:]
 
         for line in lines:
-            # ignored columns: FL & fields past confid
+            # ignored columns: FL & fields past Crg
             iConf, confid, _, _, Crg, *_ = line.split()
-            cx = int(iConf) - 1  # as python index
+            cx = int(iConf) - 1  # as python 0-based index
             crg = int(float(Crg))
             # extend ires indices; to use in matrix
             # confid:0, crg:1, cx:2, is_fixed:3, rx:4, is_free:5
