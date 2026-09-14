@@ -170,8 +170,9 @@ def cli_parser():
 
     p = ArgumentParser(prog="ms_hbnets_heatmaps",
         description="""
-Gather the H-bonding conformer pairs and states occupancies 
-from the microstates file given a mcce dir, pH & Eh.""",
+Produces heatmaps from 'ms_hbnets' output files. Heatmaps implemented:
+ - Donor/acceptor pairs co-occurence map (visualization of hb_pairs_res_pH*.csv file).
+""",
     usage="""ms_hbnets_heatmaps
        ms_hbnets_heatmaps -mcce-dir <dirpath>
        ms_hbnets_heatmaps -ph 5
