@@ -120,6 +120,17 @@ OCC_MIN = 0.01
 RESMAP_FIGSIZE = (12,10)
 
 
+def get_resnum(val: str):
+    """Get the res num from the res id in hb_pairs_res_pH*.csv file.
+    Examples:
+      HOH_W123 -> 123; _S1_O1 ->   1
+    """
+    if val.startswith("_"):
+        return int(val[1:].split("_")[1][1:])
+    else:
+        return int(val.split("_")[1][1:])
+
+
 def get_res_heatmap(pairs_res_csv: Path,
                     occ_cutoff: float = OCC_MIN,
                     fig_size: tuple = RESMAP_FIGSIZE,
@@ -127,12 +138,9 @@ def get_res_heatmap(pairs_res_csv: Path,
                    ):
 
     res_pairs_df = pd.read_csv(pairs_res_csv)
+
     msk = res_pairs_df["occ"].ge(occ_cutoff)
     res_pairs_df = res_pairs_df.loc[msk]
-    
-    def get_resnum(val: str) -> int:
-        return int(val.split("_")[1][1:])
-        
     res_pairs_df["di"] = res_pairs_df["res_d"].apply(get_resnum)
     res_pairs_df["ai"] = res_pairs_df["res_a"].apply(get_resnum)
     res_pairs_df = res_pairs_df.sort_values(by=["di","ai"])
