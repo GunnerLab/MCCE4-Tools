@@ -1315,11 +1315,11 @@ Load the H-bonding states instead of the H-bonding pairs (default)"""
                    help="""
 Number of H-bonding states to return, possibly (no effect without --load_states); Default: %(default)s"""
                     )
-    p.add_argument("-fig_size",
-                   type=tuple,
-                   default=(12,10),
-                   help="For donor/acceptor co-occurences heatmap; Default: %(default)s"
-                    )
+    # p.add_argument("-fig_size",
+    #                type=tuple,
+    #                default=(12,10),
+    #                help="For donor/acceptor co-occurences heatmap; Default: %(default)s"
+    #                 )
     p.add_argument("--run_checks",
                    action="store_true",
                    default=False,
