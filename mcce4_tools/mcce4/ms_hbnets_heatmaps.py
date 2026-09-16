@@ -134,7 +134,7 @@ def get_resnum(val: str):
 def get_res_heatmap(pairs_res_csv: Path,
                     occ_cutoff: float = OCC_MIN,
                     fig_size: tuple = RESMAP_FIGSIZE,
-                    save_as: str = "res_da_co_occurence.png",
+                    save_as: str = "res_da_co_occurrence.png",
                    ):
 
     res_pairs_df = pd.read_csv(pairs_res_csv)
