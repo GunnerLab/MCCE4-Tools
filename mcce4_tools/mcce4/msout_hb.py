@@ -1152,17 +1152,25 @@ class MSout_hb:
             pairs_out = pairs_out.sort_values(by=["count", "Mi"], ascending=[False, True])
             pairs_out.to_csv(self.pairs_csv, index=False)
 
-            # grouped by 1-letter res codes for loading in cytoscape
-            df[["res_d","res_a"]] = df["index"].apply(
-                lambda x: pd.Series([get_resid(self.iconf2confid[x[0]]),
-                                     get_resid(self.iconf2confid[x[1]])]))
-            df_res = df.groupby(["res_d","res_a"], as_index=False).agg({"count": "max",
-                                                                        "occ": "max"})
+            # rename conf to 1-letter res codes for loading in cytoscape
+            df[["res_d","res_a"]] = df.apply(
+                lambda x: pd.Series([get_resid(x["donor"]), get_resid(x["acceptor"])]),
+                axis=1)
+            # add with_bk flag:
+            df["with_bk"] = df.apply(
+                lambda row: row["donor"][3:5]=="BK" or row["acceptor"][3:5]=="BK",
+                axis=1)
+            
+            # collapse confs to res:
+            df_res = df.groupby(["res_d","res_a"],
+                                as_index=False).agg({"count": "max", "occ": "max", "with_bk": "max"})
+            
             df_res["count"] = df_res["count"].astype("int32")
             df_res = df_res.sort_values(by="count", ascending=False)
             df_res.to_csv(self.pairs_res_csv, index=False)
 
-            df = df.drop(columns=["index","donor","acceptor", "res_d","res_a"])
+            # save new cols to expanded files
+            df = df.drop(columns=["index","donor","acceptor","res_d","res_a"])
             # update expanded hah file with hb_pairs count, occ:
             hah_df = pd.read_csv(self.hah_ms_fp, comment="#")
             hah_df = hah_df.merge(df, left_on=["Mi","Mj"], right_on=["Mi","Mj"])
