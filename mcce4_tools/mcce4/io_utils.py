@@ -44,7 +44,6 @@ from pprint import pformat
 import re
 import subprocess
 from subprocess import CompletedProcess, CalledProcessError
-import sys
 import time
 from typing import Any, Callable, Dict, List, Tuple, Union
 
@@ -60,7 +59,7 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 
-N_HDR = 6      # min header lines in msout file (non mc data)
+N_HDR = 6         # min header lines in msout file (non mc data)
 N_STATES = 25000  # target number of hb states to return
 MC_METHODS = ["MONTERUNS", "ENUMERATE"]
 
@@ -148,13 +147,13 @@ class MsoutHeaderData:
 def get_msout_size_info(msout_fp: Path,
                         n_target_states: int = N_STATES,
                         verbose: bool = False) -> Tuple[int, int, int]:
-    """Return n_lines, n_skip_lines, n_mc_runs
+    """Return n_lines, n_skip_lines, n_mc_runs or 0,0,0 if error.
     """
     cmd = f"egrep '^MC' {msout_fp!s}; wc -l {msout_fp!s};"
     out = subprocess_run(cmd, shell=True, check=True)
     if isinstance(out, CalledProcessError):
         print(out.stderr)
-        sys.exit(1)
+        return 0,0,0
     out = out.stdout.splitlines()
     n_mc_runs = len(out[:-1])
     # to implement skipping accepted states every n lines:

@@ -24,9 +24,10 @@ except ImportError as e:
 
 OCC_MIN = 0.01
 RESMAP_FIGSIZE = (6,6)  # uniq donors, uniq acceptors counts < 30
+RESMAP_TITLE = "Donors - Acceptors co-occurences"
+# fix: need pheh string:
 FIG_CO_OCCURRENCE_RES = "hb_res_co_occurrence.png"
 FIG_CO_OCCURRENCE_BK = "hb_bk_co_occurrence.png"
-RESMAP_TITLE = "Donors - Acceptors co-occurences"
 
 
 def despine(ax = None, which=['top','right']):
@@ -126,6 +127,8 @@ def plot_heatmap(df, ax=None, fig=None):
 
 def get_resid(confid:str) -> str:
     id1 = res3_to_res1.get(confid[:3], confid[:3])
+    if id1 == "HOH":
+        id1 = "w"
     return f"{id1}_" + confid[5] + str(int(confid[6:-4]))
 
 
@@ -153,15 +156,15 @@ def convert_pairs_res_with_bk(pairs_fp: Path):
     return
 
 
-def get_resnum(val: str):
-    """Get the res num from the res id in hb_pairs_res_pH*.csv file.
+def get_resnum(resid: str):
+    """Get the res num from the resid in hb_pairs_res_pH*.csv file.
     Examples:
-      HOH_W123 -> 123; _S1_O1 ->   1
+      HOH_W123 -> 123; _CL_1 -> 1; K__90 -> 90
     """
-    if val.startswith("_"):
-        return int(val[1:].split("_")[1][1:])
-    else:
-        return int(val.split("_")[1][1:])
+    if "__" in resid: # no chain
+        return int(resid.rsplit("_")[-1])
+
+    return int(resid.rsplit("_")[-1][1:])
 
 
 def heat_map_from_df(df: pd.DataFrame,
