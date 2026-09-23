@@ -49,13 +49,15 @@ HAH_FNAME_INIT = "step2_out_hah.txt"
 
 # Output filenames: f-strings to receive MSout_hb.pheh_str,
 #                   (msout_fp.stem[:-2]), because they are ph/eh dependent.
-# Reduced hah.txt file: has no hb pairs involving conformers that are
-#                       fixed & always off, or two BK conformers, or conformers
-#                       with 0 occupancy
+# Reduced hah_*.txt file: has no hb pairs involving conformers that are:
+#                       fixed & always off, or two BK conformers, or conformers with 0 occupancy
 fHAH_FNAME = "hah_{}.txt"
 fHAH_EXPANDED = "expanded_hah_{}.csv"
 fPAIR_RES = "hb_pairs_res_{}.csv"
 
+OCC_PREC = 5
+min_occ = 10**(-OCC_PREC)
+min_occ_print = f"min occ >= {min_occ:.{OCC_PREC}f}"
 
 # mapping of iconf (donor, acceptor) pairs for filtering purposes:
 pair_classes = {
@@ -157,6 +159,16 @@ def get_hb_paths(mcce_dir: Path, ph: str = "7", eh: str = "0") -> Tuple[Path, No
             mcce_dir.joinpath(f"hb_states_{pheh}.csv"),
             mcce_dir.joinpath(f"hb_states_pairs_{pheh}.csv")
             )
+
+
+def get_resid(confid:str) -> str:
+    """Return the one-letter resid in this format:
+    1-letter code + _ + Chain + resnum, ex: H_A59
+    """
+    id1 = res3_to_res1.get(confid[:3], confid[:3])
+    if id1 == "HOH":
+        id1 = "w"
+    return f"{id1}_" + confid[5] + str(int(confid[6:-4]))
 
 
 def get_da_pairs(hah_fp: Path) -> Union[np.ndarray, None]:
@@ -509,13 +521,13 @@ class MSout_hb:
                  load_states: bool = False,
                  verbose: bool = False):
         """
-        MSout_hb class constructor, __init__.
+        MSout_hb class constructor.
 
         Arguments:
          - mcce_dir (str): Path to a mcce simulation directory.
          - ph (str, '7'): Titration pH.
          - eh (str, '0'): Titration Eh.
-         - n_target_states (int, 25,000): Number of hb states to return (upper bound).
+         - n_target_states (int, 25,000): Number of hb states to return.
          - load_states (bool, False): Must be True to load hb states instead of hb pairs.
            When True, the output file 'hb_states_pairs_{pheh}.csv' has the hb pair state
            membership in the column 'state_id', which is the index found in the 'ix' column
@@ -536,17 +548,11 @@ class MSout_hb:
 
         (self.h3_fp, self.step2_fp, self.msout_fp, self.fort38_fp,
          self.hah_fp, self.hah_ms_fp,
+         # outputs:
          self.pairs_csv, self.pairs_res_csv,
          self.states_csv, self.states_pairs_csv) = needed_fps
-
         # ph, eh as string to match msout file:
         self.pheh_str = self.msout_fp.stem[:-2]
-
-        self.mc_lines, self.n_skip, self.n_MC = get_msout_size_info(self.msout_fp,
-                                                n_target_states=n_target_states)
-        print(f"Approximate number of lines in msout file: {self.mc_lines:,}")
-        if self.n_skip == 1:
-            print("Warning: Returning all hb_states and printing every 5000th accepted state.")
 
         # data from the msout file 'header':
         self.HDR = MsoutHeaderData(self.msout_fp)
@@ -578,15 +584,7 @@ class MSout_hb:
         self.n_hb_confs: int = 0
         self.extended_iconfs: List[int] = []
 
-        # free and mixed hb pairs + needed indices
-        print(f"Creating the expanded hah file {self.hah_ms_fp!s}...")
-        # first call to class method:
-        hah_df = self.load_hah_file()
-        if hah_df is None:
-            self.proceed = False
-            return
-
-        self.df = self.expand_hah_data(hah_df)
+        self.df = self.expand_hah_data()
         if self.df is None:
             self.proceed = False
             return
@@ -601,13 +599,16 @@ class MSout_hb:
         _, self.iconf2confid = self.get_confs_mappings()
         self.setup_time = show_elapsed_time(start_setup, info="MS setup", return_time=True)
 
+        self.missing_outputs = self.do_load_ms()
         # states space size, incremented by either load_ functions
         self.n_space: int = 0
 
         self.I: csr_matrix = None
         self.hb_states: dict = None
+        self.n_hb_states: int = 0
         self.n_hb_space: int = 0
-        self.hb_pairs: dict = None
+        self.hb_pairs: list = []
+        self.n_hb_pairs: int = 0
         self.hb_adj = {}
         self.hb_adj_indices: np.ndarray
         self.hb_adj_indptr: np.ndarray
@@ -684,25 +685,24 @@ class MSout_hb:
         return df
 
     def load_hah_file(self) -> Union[pd.DataFrame, None]:
-        """Wrapper for hah file preparation.
+        """Used by expand_hah_data.
+        Produces the ph-eh dependent 'hah' file (aka the reduced hah file) if not found.
          - If path not set, or old format: run detect_hbonds
-         - If file has default output name 'step2_out_hah.txt',
-           create a reduced file.
+         - If hah file has default output name 'step2_out_hah.txt',
+           create the reduced file.
         """
         df = table_to_df(self.hah_fp)
         if df is None:
             self.proceed = False
             return
 
-        print(f"H-bonding pairs in {self.hah_fp.name!s}: {df.shape[0]}")
         if self.hah_fp.name==HAH_FNAME_INIT:
             df = self.reduce_hah_file(df)
             if df is None:
-                print("Could not reduced the input hah file.")
+                print("Could not reduce the input hah file.")
                 self.proceed = False
                 return
-        if self.verbose:
-            print(f"Loaded {self.hah_fp.name!s} into a dataframe with {df.shape[0]} rows")
+        print(f"H-bonding pairs in {self.hah_fp.name!s}: {df.shape[0]}")
 
         return df
 
@@ -810,12 +810,30 @@ class MSout_hb:
 
         return
 
-    def expand_hah_data(self, df:pd.DataFrame) -> pd.DataFrame:
+    def expand_hah_data(self) -> pd.DataFrame:
         """Load the hah file into a dataframe & add:
          -conformer indices from h3
          -free conformer flags
          -the conformer indices used to build the hb pairs matrix P or adj list
         """
+        if not self.proceed:
+            return None
+
+        if self.hah_ms_fp.exists():
+            exp_df = pd.read_csv(self.hah_ms_fp)
+            # populate the needed attributes:
+            fixd, fixa, bkd, bka = self.get_fixed_or_bk_confids(exp_df)
+            self.get_extended_iconfs(fixd, fixa, bkd, bka)
+            return exp_df
+
+        # free and mixed hb pairs + needed indices
+        print(f"Creating the expanded hah file {self.hah_ms_fp!s}...")
+
+        df = self.load_hah_file()
+        if df is None:
+            self.proceed = False
+            return None
+
         def is_free_pair(ro) -> int:
             """Assign classes to pair kinds."""
             return pair_classes[(ro["free_d"], ro["free_a"])]
@@ -1030,7 +1048,6 @@ class MSout_hb:
                         continue
 
                     mc_lines += 1
-                    #state_e = float(fields[0])
                     count = int(fields[1])
                     self.n_space += count
                     # flipped: 
@@ -1040,24 +1057,31 @@ class MSout_hb:
                     if mc_lines % self.n_skip == 0:
                         si, sj = self.I[np.ix_(xs, xs)].nonzero()
                         sij = tuple(zip(xs[si], xs[sj]))
-                        hb_states[sij][0] += round(float(fields[0]),3)
+                        hb_states[sij][0] += round(float(fields[0]),3)   # state energy
                         hb_states[sij][1] += count
 
                     if mc_lines % (self.n_skip*5000) == 0:
                         print(f" Trace - mc lines processed: {mc_lines:,}...")
 
-        self.hb_states = dict(hb_states)
-        # sum count:
-        self.n_hb_space = int(np.array(list(self.hb_states.values()))[:,1].sum())
-        # update states dict with aver E & occ:
+        # update final states dict with aver E & occ if occ > 0.00001%:
+        self.hb_states = defaultdict(lambda: [0., 0, 0.])   # [E, count, occ]
         for s in hb_states:
-            hb_states[s][0] = hb_states[s][0]/self.n_space
-            hb_states[s][2] = hb_states[s][1]/self.n_space
-
-        print(f"\nProcessed mc lines: {mc_lines:,}")  # accepted ms with flipped iconfs
-        print(f"State space: {self.n_space:,}")
-        print(f"H-bonding space: {self.n_hb_space:,} ({self.n_hb_space/self.n_space:.2%} of state space)")
-        print(f"H-bonding states: {len(self.hb_states):,} (target: {self.n_target_states:,})")
+            occ = hb_states[s][1]/self.n_space
+            if round(occ, OCC_PREC) > 0:
+                self.n_hb_space += hb_states[s][1]
+                self.hb_states[s][0] = hb_states[s][0]/self.n_space
+                self.hb_states[s][1] = hb_states[s][1]
+                self.hb_states[s][2] = occ
+        del hb_states
+        self.hb_states = dict(self.hb_states)
+        self.n_hb_states = len(self.hb_states)
+        print(f"\nProcessed mc lines: {mc_lines:,}",   # accepted ms with flipped iconfs
+              f"Microstates space: {self.n_space:,}",
+              (f"Occupied H-bonding states space @ {min_occ_print}: {self.n_hb_space:,} "
+               f"({self.n_hb_space/self.n_space:.2%} of state space)"),
+              f"Saved occupied H-bonding states: {self.n_hb_states:,} (target: {self.n_target_states:,})",
+              sep="\n"
+              )
 
         return
 
@@ -1114,35 +1138,27 @@ class MSout_hb:
                     for ic in [int(c) for c in fields[2].split()]:
                         xs[self.HDR.iconf2ires[ic]] = ic
 
-                    self.process_ms_pairs(xs, count)
+                    self.process_ms_pairs(xs, count)  # update pair matrix, self.P
 
                     if mc_lines % (self.n_skip*5000) == 0:
                         print(f" Trace: processed mc lines {mc_lines:,}...")
 
-        # create pairs dict:
-        hb_pairs = defaultdict(lambda: [0, 0.])  # vals: [count, occ]
+        # Save to list where each item is [(pi, pj), count, occ]
         pi, pj = self.P.nonzero()
-        for p in zip(pi, pj):
-            cnt = self.P[p[0], p[1]]
-            hb_pairs[p][0] += cnt
-            hb_pairs[p][1] = hb_pairs[p][0]/self.n_space
-
-        self.hb_pairs = dict(hb_pairs)
+        self.hb_pairs = [[(int(p[0]),int(p[1])),
+                          int(self.P[p[0], p[1]].sum(axis=0)),
+                          float(self.P[p[0], p[1]].sum(axis=0)/self.n_space)] for p in zip(pi, pj)]
+        self.n_hb_pairs = len(self.hb_pairs)
         # accepted ms with flipped iconfs
         print(f"\nProcessed mc lines: {mc_lines:,}")
         print(f"State space: {self.n_space:,}")
-        print(f"H-bonding pairs: {len(self.hb_pairs):,}")
+        print(f"H-bonding pairs: {self.n_hb_pairs:,}")
 
         return
 
-    def dicts2csv(self):
-        def get_resid(confid:str) -> str:
-            id1 = res3_to_res1.get(confid[:3], confid[:3])
-            return f"{id1}_" + confid[5] + str(int(confid[6:-4]))
-
+    def hb_pairs_dict2csv(self):
         if self.hb_pairs:
-            df = pd.DataFrame.from_dict(self.hb_pairs, orient="index",
-                                         columns=["count","occ"]).reset_index()
+            df = pd.DataFrame(self.hb_pairs, columns=["index","count","occ"])
             df["occ"] = df["occ"].round(6)
             df["count"] = df["count"].astype("int32")
             df[["Mi","Mj"]] = df["index"].apply(lambda x: pd.Series([int(x[0]),int(x[1])]))
@@ -1182,8 +1198,10 @@ class MSout_hb:
                    f"  {self.pairs_res_csv!s} ({df_res.shape[0]:,} rows): "
                    "residues hb pairs (for loading in Cytoscape)\n"))
 
+        return
+
+    def hb_states_dict2csv(self):
         if self.hb_states:
-            states_pairs_dict = defaultdict(int)
             dfs = pd.DataFrame.from_dict(self.hb_states,
                                          orient="index",
                                          columns=["averE", "count", "occ"]
@@ -1191,18 +1209,19 @@ class MSout_hb:
             dfs["averE"] = dfs["averE"].round(3)
             dfs["occ"] = dfs["occ"].round(6)
             dfs["state_id"] = None
-            
-            for rx, ro in dfs.iterrows():
-                # convert conf indices to confids:
-                dfs.loc[rx,"state_id"] = ",".join(
-                    f"({self.iconf2confid[tp[0]]},{self.iconf2confid[tp[1]]})"
-                    for tp in ro["index"])
-                # get the effective count for each pair in the state key
-                for tpl in ro["index"]:
-                    states_pairs_dict[tpl] += ro["count"]
 
-            dfs = dfs[["state_id","averE","count","occ"]].sort_values(by="count",
-                                                                      ascending=False)
+            states_pairs_dict = defaultdict(int)
+            for rx, ro in dfs.iterrows():
+                state_id = ""
+                for tpl in ro["index"]:
+                    # get the effective count of each pair in the state key
+                    states_pairs_dict[tpl] += ro["count"]
+                    # convert conf indices to confids:
+                    state_id = state_id + f"({self.iconf2confid[tpl[0]]},{self.iconf2confid[tpl[1]]}),"
+
+                # update converted state id, minus trailing comma:
+                dfs.loc[rx,"state_id"] = state_id[:-1]
+     
             # prep hb states pairs output:
             dfsp = pd.DataFrame.from_dict(states_pairs_dict,
                                           orient="index",
@@ -1213,18 +1232,27 @@ class MSout_hb:
                 lambda x: pd.Series([self.iconf2confid[x[0]],
                                      self.iconf2confid[x[1]]]))
             dfsp["occ"] = (dfsp["count"]/self.n_hb_space).round(6)
-            dfsp = (dfsp[["Mi","Mj","donor","acceptor","count","occ"]]
-                     .sort_values(by=["count", "Mi", "Mj"],
-                                  ascending=[False, True, True])
+
+            # add short residue-based confid as in pairs_res file
+            dfsp[["res_d","res_a"]] = dfsp.apply(
+                lambda x: pd.Series([get_resid(x["donor"]), get_resid(x["acceptor"])]), axis=1)
+            # boolean indicator: one pair member involves BK conf
+            dfsp["with_bk"] = dfsp.apply(
+                lambda row: row["donor"][3:5]=="BK" or row["acceptor"][3:5]=="BK", axis=1)
+            dfsp = (dfsp[["Mi","Mj","donor","acceptor","count","occ","with_bk"]]
+                    .sort_values(by=["count", "Mi", "Mj"],
+                                 ascending=[False, True, True])
             )
-            dfsp = dfsp[["Mi","Mj","donor","acceptor","count","occ"]]
             with open(self.states_pairs_csv, "w") as fo:
-                fo.write("# States hb_pairs; last 2 columns: state count, occ\n")
+                fo.write("# States hb_pairs; state count, occ: per occupied returned states\n")
                 dfsp.to_csv(fo, index=False)
-   
+
+            # exclude index, sort & save
+            dfs = dfs[["state_id","averE","count","occ"]].sort_values(by="count",
+                                                                      ascending=False)
             # build comment about % returned states
-            note = (f"# Data for the {len(self.hb_states):,} "
-                    "saved hb_states whose sum count represents "
+            note = (f"# Data for the {self.n_hb_states:,} "
+                    "saved occupied hb_states whose count represents "
                     f"{self.n_hb_space/self.n_space:.2%} of the "
                     f"state space ({self.n_hb_space:,}/{self.n_space:,})\n"
             )
@@ -1232,10 +1260,10 @@ class MSout_hb:
                 fo.write(note)
                 dfs.to_csv(fo, index=False)
 
-            print(("Main output files:\n"
-                   f"  {self.states_pairs_csv!s}: hb pairs with effective "
-                   "occ from hb state space\n"
-                   f"  {self.states_csv!s}: hb states data\n"))
+            print("Main output files:",
+                  f"  {self.states_pairs_csv!s}: hb pairs with effective occ from hb state space",
+                  f"  {self.states_csv!s}: hb states data",
+                  sep="\n")
         return
 
     def __str__(self):
@@ -1247,20 +1275,50 @@ class MSout_hb:
                 f"Background charge: {self.CI.background_crg:.0f}\n"
                 )
 
+    def do_load_ms(self) -> bool:
+        """Check presence of output according to self.load_states.
+        Returns:
+         - go (boolean): True: load microstates, False: don't.
+        """
+        # TODO: Add check on output figures
+        go = True
+        if self.load_states:
+            if self.states_csv.exists() and self.states_pairs_csv.exists():
+                print("Output files for hb states already exist.")
+                go = False
+        else:
+            if self.pairs_csv.exists() and self.pairs_res_csv.exists():
+                print("Output files for hb pairs already exist.")
+                go = False
+        
+        return go
+
     def run_ms_pipeline(self, load_states: bool = False):
         # to enable ouputing hb_pairs and hb_states programmatically:
         if not self.proceed:
             return
 
-        if load_states != self.load_states:
-            self.load_states = load_states
+        self.load_states = load_states
+        if not self.missing_outputs:
+            return
+        
         start_pipeline = time.time()
+
+        self.mc_lines, self.n_skip, self.n_MC = get_msout_size_info(self.msout_fp,
+                                                n_target_states=self.n_target_states)
+        print(f"Approximate number of lines in msout file: {self.mc_lines:,}")
+        if self.n_skip == 1:
+            print("Warning: Returning all hb_states and printing every 5000th accepted state.")
 
         if self.load_states:
             start_t = time.time()
             self.I = self.get_sparse_matrix()
             self.load_hb_states()
             show_elapsed_time(start_t, info="Loading H-bonding states")
+            # save loaded hb_states dict to csv:
+            start_t = time.time()
+            self.hb_states_dict2csv()
+            show_elapsed_time(start_t, info="Processing final outputs for hb states")
         else:
             start_t = time.time()
             self.hb_adj = self.get_adjacency_dict()
@@ -1268,13 +1326,12 @@ class MSout_hb:
             self.P = np.zeros((self.n_hb_confs, self.n_hb_confs), dtype=np.int32)
             self.load_hb_pairs()
             show_elapsed_time(start_t, info="Loading H-bonding pairs")
+            # save loaded hb_pairs dict to csv:
+            start_t = time.time()
+            self.hb_pairs_dict2csv()
+            show_elapsed_time(start_t, info="Processing final outputs for hb pairs")
 
-        start_t = time.time()
         print(self.__str__())
-        # save loaded pairs dict to csv:
-        self.dicts2csv()
-        show_elapsed_time(start_t, info="Processing final outputs")
-
         pipeline_time = show_elapsed_time(start_pipeline, info="MS H-bond pipeline", return_time=True)
         tot_time = self.setup_time + pipeline_time
         print(f"Elapsed time - Start to end: {tot_time:,.2f} s ({tot_time/60:,.2f} min)\n")
@@ -1323,11 +1380,6 @@ Load the H-bonding states instead of the H-bonding pairs (default)"""
                    help="""
 Number of H-bonding states to return, possibly (no effect without --load_states); Default: %(default)s"""
                     )
-    # p.add_argument("-fig_size",
-    #                type=tuple,
-    #                default=(12,10),
-    #                help="For donor/acceptor co-occurences heatmap; Default: %(default)s"
-    #                 )
     p.add_argument("--run_checks",
                    action="store_true",
                    default=False,
