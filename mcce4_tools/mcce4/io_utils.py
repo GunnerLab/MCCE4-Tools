@@ -44,7 +44,7 @@ from pprint import pformat
 import re
 import subprocess
 from subprocess import CompletedProcess, CalledProcessError
-import time
+from time import time
 from typing import Any, Callable, Dict, List, Tuple, Union
 
 import numpy as np
@@ -243,7 +243,7 @@ def show_elapsed_time(start_t: time, info: str = None,
     If writer is None, writer is set to logger.info if a logger is configured,
     otherwise to print.
     """
-    elapsed = time.time() - start_t
+    elapsed = time() - start_t
     if info is None:
         msg = f"Elapsed time: {elapsed:,.2f} s ({elapsed/60:,.2f} min)\n"
     else:

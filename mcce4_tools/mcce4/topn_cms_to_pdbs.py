@@ -721,11 +721,19 @@ Input options:
         return
 
     def load_data(self):
-        # Instantiate MSout_np using default mc_load="all": load ms and cms data:
-        logger.info("Loading ms and cms data into MSout_np")
+        """Instantiate MSout_np using default mc_load="all": load ms and cms data
+        if pdbs are to be written, else only load crg.
+        """
+        which = "all"
+        if self.args.no_pdbs:
+            which = "crg"
+            logger.info("Loading cms data into MSout_np")
+        else:
+            logger.info("Loading ms and cms data into MSout_np")
         self.mso = MSout_np(
             self.mcce_files[0],
             self.mcce_files[2],
+            mc_load=which,
             res_kinds=self.residue_kinds,
             with_tautomers=True,
             reduced_ms_rows=self.args.reduced_ms_rows,

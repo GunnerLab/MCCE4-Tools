@@ -18,7 +18,7 @@ from collections import defaultdict
 from pathlib import Path
 import re
 import sys
-import time
+from time import time
 from typing import Dict, List, Tuple, Union
 
 try:
@@ -45,8 +45,8 @@ If you want the processing of the analytical solution to be reinstated
 please, open a feature request at https://github.com/GunnerLab/MCCE4-Tools/issues
 """
 
+# Input file, output of `detect_hbonds`:
 HAH_FNAME_INIT = "step2_out_hah.txt"
-
 # Output filenames: f-strings to receive MSout_hb.pheh_str,
 #                   (msout_fp.stem[:-2]), because they are ph/eh dependent.
 # Reduced hah_*.txt file: has no hb pairs involving conformers that are:
@@ -75,6 +75,28 @@ pair_classes = {
                 }
 
 
+def num_prec(num: Union[float, int]) -> int:
+    if isinstance(num, int):
+        return 0
+    num_str = str(num).lower()
+    if  'e' in num_str:
+        return int("".join(c for c in num_str.split('e')[1] if c.isnumeric()))
+        
+    if '.' in num_str:
+        return len(num_str.split('.')[1])
+    return 0
+
+
+def get_resid(confid:str) -> str:
+    """Return the one-letter resid in this format:
+    1-letter code + _ + Chain + resnum, ex: H_A59
+    """
+    id1 = res3_to_res1.get(confid[:3], confid[:3])
+    if id1 == "HOH":
+        id1 = "w"
+    return f"{id1}_" + confid[5] + str(int(confid[6:-4]))
+
+
 def is_int(val:str) -> bool:
     try:
         return str(int(val)) == val
@@ -89,6 +111,8 @@ def get_titr_vec(titr_fp: Path, titr_point: str, non_zeros: bool = None) -> Unio
        If None (default): return the entire vector;
        If True: output the non-zero values;
        If False: output the zero values.
+
+    Used by MSout_hb.reduce_hah_file.
     """
     if is_int(titr_point):
         titr_point = titr_point + ".0"
@@ -161,19 +185,9 @@ def get_hb_paths(mcce_dir: Path, ph: str = "7", eh: str = "0") -> Tuple[Path, No
             )
 
 
-def get_resid(confid:str) -> str:
-    """Return the one-letter resid in this format:
-    1-letter code + _ + Chain + resnum, ex: H_A59
-    """
-    id1 = res3_to_res1.get(confid[:3], confid[:3])
-    if id1 == "HOH":
-        id1 = "w"
-    return f"{id1}_" + confid[5] + str(int(confid[6:-4]))
-
-
 def get_da_pairs(hah_fp: Path) -> Union[np.ndarray, None]:
     """Return array of donor/acceptor pairs info with 4 slots:
-        confid_donor","confid_acceptor","d_occ","a_occ"
+    confid_donor, confid_acceptor, d_occ, a_occ
     """
     if hah_fp.suffix != ".txt":
         print(("FileTypeError:\n "
@@ -195,7 +209,7 @@ def get_da_pairs(hah_fp: Path) -> Union[np.ndarray, None]:
 
 
 def get_ms_pairs(pairs_csv: Path) -> Union[np.ndarray, None]:
-    """Return array with 3 slots: "donor","acceptor","occ"
+    """Return array with 3 slots: donor, acceptor, occ
     """
     try:
         return pd.read_csv(pairs_csv, usecols=["donor","acceptor","occ"],
@@ -501,14 +515,6 @@ def _process_hbpairs_numba(microstate: np.ndarray,
             a = hb_adj_indices[p]
             if ms_mask[a]:
                 hb_pairs[d, a] += count
-            # else:
-            # MG's algo does not make sense; pair count is incremented only
-            # if found in microstate; if not found, why would the count be
-            # decremented by the current count, which was never applied in the first place?
-            # + yields incorrect occupancies
-            #     if effective_count:
-            #         prev = hb_pairs[d, a]
-            #         hb_pairs[d, a] = max(0, prev - count)  # 0 if decreased value is < 0
 
     return
 
@@ -519,6 +525,7 @@ class MSout_hb:
     def __init__(self, mcce_dir: str, ph: str = "7", eh: str = "0",
                  n_target_states: int = N_STATES,
                  load_states: bool = False,
+                 min_occ: float = min_occ,
                  verbose: bool = False):
         """
         MSout_hb class constructor.
@@ -537,10 +544,11 @@ class MSout_hb:
         self.proceed = True
         self.verbose = verbose
         self.load_states = load_states
+        self.hb_kind = "states" if self.load_states else "pairs"
         self.n_target_states = n_target_states
         self.run_dir = Path(mcce_dir)
 
-        start_setup = time.time()
+        start_setup = time()
         needed_fps = get_hb_paths(self.run_dir, ph=ph, eh=eh)
         if needed_fps is None:
             self.proceed = False
@@ -574,6 +582,10 @@ class MSout_hb:
             print("[DATA MISMATCH]: Conformer info could not be loaded.")
             self.proceed = False
             return
+
+        self.min_occ = min_occ
+        self.prec = num_prec(self.min_occ)
+        self.min_occ_print = f"min occ >= {self.min_occ:.{self.prec}f}"
 
         # attributes populated by get_extended_iconfs:
         self.n_fx: int = 0
@@ -1067,7 +1079,7 @@ class MSout_hb:
         self.hb_states = defaultdict(lambda: [0., 0, 0.])   # [E, count, occ]
         for s in hb_states:
             occ = hb_states[s][1]/self.n_space
-            if round(occ, OCC_PREC) > 0:
+            if round(occ, self.prec) > 0:
                 self.n_hb_space += hb_states[s][1]
                 self.hb_states[s][0] = hb_states[s][0]/self.n_space
                 self.hb_states[s][1] = hb_states[s][1]
@@ -1077,7 +1089,7 @@ class MSout_hb:
         self.n_hb_states = len(self.hb_states)
         print(f"\nProcessed mc lines: {mc_lines:,}",   # accepted ms with flipped iconfs
               f"Microstates space: {self.n_space:,}",
-              (f"Occupied H-bonding states space @ {min_occ_print}: {self.n_hb_space:,} "
+              (f"Occupied H-bonding states space @ {self.min_occ_print}: {self.n_hb_space:,} "
                f"({self.n_hb_space/self.n_space:.2%} of state space)"),
               f"Saved occupied H-bonding states: {self.n_hb_states:,} (target: {self.n_target_states:,})",
               sep="\n"
@@ -1147,7 +1159,8 @@ class MSout_hb:
         pi, pj = self.P.nonzero()
         self.hb_pairs = [[(int(p[0]),int(p[1])),
                           int(self.P[p[0], p[1]].sum(axis=0)),
-                          float(self.P[p[0], p[1]].sum(axis=0)/self.n_space)] for p in zip(pi, pj)]
+                          round(float(self.P[p[0], p[1]].sum(axis=0)/self.n_space),
+                                self.prec)] for p in zip(pi, pj)]
         self.n_hb_pairs = len(self.hb_pairs)
         # accepted ms with flipped iconfs
         print(f"\nProcessed mc lines: {mc_lines:,}")
@@ -1156,7 +1169,7 @@ class MSout_hb:
 
         return
 
-    def hb_pairs_dict2csv(self):
+    def hb_pairs_data2csv(self):
         if self.hb_pairs:
             df = pd.DataFrame(self.hb_pairs, columns=["index","count","occ"])
             df["occ"] = df["occ"].round(6)
@@ -1200,7 +1213,7 @@ class MSout_hb:
 
         return
 
-    def hb_states_dict2csv(self):
+    def hb_states_data2csv(self):
         if self.hb_states:
             dfs = pd.DataFrame.from_dict(self.hb_states,
                                          orient="index",
@@ -1280,7 +1293,6 @@ class MSout_hb:
         Returns:
          - go (boolean): True: load microstates, False: don't.
         """
-        # TODO: Add check on output figures
         go = True
         if self.load_states:
             if self.states_csv.exists() and self.states_pairs_csv.exists():
@@ -1294,15 +1306,21 @@ class MSout_hb:
         return go
 
     def run_ms_pipeline(self, load_states: bool = False):
-        # to enable ouputing hb_pairs and hb_states programmatically:
+        """
+        Takes load_states as parameter to enable ouputing hb_pairs and hb_states
+        programmatically via calls to run_ms_pipeline with two load_states
+        values, i.e. True, then False.
+        """
         if not self.proceed:
             return
 
         self.load_states = load_states
+        self.hb_kind = "states" if self.load_states else "pairs"
+
         if not self.missing_outputs:
             return
         
-        start_pipeline = time.time()
+        start_pipeline = time()
 
         self.mc_lines, self.n_skip, self.n_MC = get_msout_size_info(self.msout_fp,
                                                 n_target_states=self.n_target_states)
@@ -1311,24 +1329,24 @@ class MSout_hb:
             print("Warning: Returning all hb_states and printing every 5000th accepted state.")
 
         if self.load_states:
-            start_t = time.time()
+            start_t = time()
             self.I = self.get_sparse_matrix()
             self.load_hb_states()
             show_elapsed_time(start_t, info="Loading H-bonding states")
             # save loaded hb_states dict to csv:
-            start_t = time.time()
-            self.hb_states_dict2csv()
+            start_t = time()
+            self.hb_states_data2csv()
             show_elapsed_time(start_t, info="Processing final outputs for hb states")
         else:
-            start_t = time.time()
+            start_t = time()
             self.hb_adj = self.get_adjacency_dict()
             self.hb_adj_indices, self.hb_adj_indptr = self.get_adj_idx_idxptr()
             self.P = np.zeros((self.n_hb_confs, self.n_hb_confs), dtype=np.int32)
             self.load_hb_pairs()
             show_elapsed_time(start_t, info="Loading H-bonding pairs")
             # save loaded hb_pairs dict to csv:
-            start_t = time.time()
-            self.hb_pairs_dict2csv()
+            start_t = time()
+            self.hb_pairs_data2csv()
             show_elapsed_time(start_t, info="Processing final outputs for hb pairs")
 
         print(self.__str__())
@@ -1337,84 +1355,3 @@ class MSout_hb:
         print(f"Elapsed time - Start to end: {tot_time:,.2f} s ({tot_time/60:,.2f} min)\n")
 
         return
-
-
-def cli_parser():
-    p = ArgumentParser(prog="ms_hbnets",
-        description="""
-Gather the H-bonding conformer pairs and states occupancies 
-from the microstates file given a mcce dir, pH & Eh.""",
-    usage="""ms_hbnets
-       ms_hbnets --load_states    # to get hb states instead of pairs
-       ms_hbnets -ph 5
-       ms_hbnets -n_states 30000
-       ms_hbnets --run_checks     # + -mcce_dir, -ph, -eh if needed; all other options: ignored
-""",
-        formatter_class=RawDescriptionHelpFormatter,
-    )
-    p.add_argument("-mcce_dir",
-                    default=".",
-                    type=str,
-                    help="MCCE run directory; Default: %(default)s",
-                    )
-    # ph, eh: as strings to easily determine the precision
-    p.add_argument("-ph",
-                    default="7",
-                    type=str,
-                    help="Titration pH; Default: %(default)s"
-                    )
-    p.add_argument("-eh",
-                    default="0",
-                    type=str,
-                    help="Titration Eh; Default: %(default)s"
-                    )
-    p.add_argument("--load_states",
-                    action="store_true",
-                    default=False,
-                    help="""
-Load the H-bonding states instead of the H-bonding pairs (default)"""
-                    )
-    p.add_argument("-n_states",
-                   default=N_STATES,
-                   type=int,
-                   help="""
-Number of H-bonding states to return, possibly (no effect without --load_states); Default: %(default)s"""
-                    )
-    p.add_argument("--run_checks",
-                   action="store_true",
-                   default=False,
-                   help="Perform checks on main outputs and exit; Default: %(default)s"
-                   )
-    p.add_argument("-v", "--verbose",
-                   action="store_true",
-                   default=False,
-                   help="Output more details and save 'dropped_fixedoff_confs.tsv' during reduction; Default: %(default)s"
-                   )
-    return p
-
-
-def cli(argv=None):
-    p = cli_parser()
-    args = p.parse_args(argv)
-    print(f" cli args = \n{args}\n")
-
-    if args.run_checks:
-        status = do_checks(args.mcce_dir, args.ph, args.eh)
-        if status:
-            print("Microstates H_bonds checks: passed.")
-        else:
-            print("Microstates H_bonds checks: failed.")
-    else:
-        mshb = MSout_hb(args.mcce_dir, args.ph, args.eh,
-                        n_target_states=args.n_states,
-                        load_states=args.load_states,
-                        verbose=args.verbose)
-        if not mshb.proceed:
-            print(f"[STOP]: Pipeline cannot be run in {Path(args.mcce_dir).resolve()!s}")
-            return
-        mshb.run_ms_pipeline(args.load_states)
-        # to also output the other type of hb data, a second call is needed:
-        # mshb.run_ms_pipeline(not args.load_states)
-        print("Microstates H_bonds collection over.")
-
-    return
