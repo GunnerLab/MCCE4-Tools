@@ -16,7 +16,7 @@ The extended hah file is expanded_hah_pH7eH0.tsv (for example)
 """
 import sys
 
-from mcce4.msout_hb import cli
+from mcce4.ms_hbnets.cli import cli
 
 
 if __name__ == "__main__":
