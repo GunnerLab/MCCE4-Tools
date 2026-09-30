@@ -321,14 +321,14 @@ class HbCorrelator:
         print(f" States matrices shape: ({self.n_rows}, {self.n_cols})")
 
         return resdf
-    
+
     def _hb_ms2matrix(self, hbs, state_mat):
         """Process a single microstate (row) of the hb_states file into a matrix.
         Used by save_hb_microstates_matrices.
         """
         # state res tuples to mat
         tpls = set()
-        for tpl in [val.split(",") for val in re_split(",\(", hbs["state_id"][1:])]:
+        for tpl in [val.split(",") for val in re_split(r",\(", hbs["state_id"][1:])]:
             tpl[1] = tpl[1][:-1]  # no trailing ")"
             tpls.add((get_resid(tpl[0]), get_resid(tpl[1])))
         for tpl in tpls:
