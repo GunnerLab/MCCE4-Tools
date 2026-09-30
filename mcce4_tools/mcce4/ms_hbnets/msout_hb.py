@@ -529,6 +529,7 @@ class MSout_hb:
                  n_target_states: int = N_STATES,
                  load_states: bool = False,
                  min_occ: float = min_occ,
+                 reload: bool = False,
                  verbose: bool = False):
         """
         MSout_hb class constructor.
@@ -542,11 +543,13 @@ class MSout_hb:
            When True, the output file 'hb_states_pairs_{pheh}.csv' has the hb pair state
            membership in the column 'state_id', which is the index found in the 'ix' column
            of the 'hb_states_{pheh}.csv' file.
+         - min_occ (bool, 0.00001): Minimal ms occ to return.
          - verbose (bool, False): Print more details if True.
         """
         self.proceed = True
         self.verbose = verbose
         self.load_states = load_states
+        self.reload = reload
         self.hb_kind = "states" if self.load_states else "pairs"
         self.n_target_states = n_target_states
         self.run_dir = Path(mcce_dir)
@@ -614,7 +617,11 @@ class MSout_hb:
         _, self.iconf2confid = self.get_confs_mappings()
         self.setup_time = show_elapsed_time(start_setup, info="MS setup", return_time=True)
 
-        self.missing_outputs = self.do_load_ms()
+        if self.reload:  # no check
+            self.missing_outputs = True
+        else:
+            self.missing_outputs = self.do_load_ms()
+
         # states space size, incremented by either load_ functions
         self.n_space: int = 0
 

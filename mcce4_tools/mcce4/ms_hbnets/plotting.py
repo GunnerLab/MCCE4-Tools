@@ -40,19 +40,73 @@ def axis_ticklabels_overlap(labels: list) -> bool:
         return False
 
 
-def plot_heatmap(df: pd.DataFrame, ax=None, fig=None):
+COLOR_GRADIENTS = ['Blues', 'BuGn', 'BuPu', 'GnBu', 'Greens', 'Greys',
+                   'OrRd', 'Oranges', 'PuBu', 'PuBuGn', 'PuRd', 'Purples',
+                   'RdPu', 'Reds', 'YlGn', 'YlGnBu', 'YlOrBr', 'YlOrRd']
+
+
+def get_cmap_bnorm(map_kind: str = "data",
+                   min_bound: float = 0.0,
+                   color: str = "Blues") -> tuple:
+    """
+    Return the ListedColormap and BoundaryNorm objects depending
+    on map_kind and min_bound and color with the later two arguments
+    only applicable to map_kind='data'.
+    Value of min_bound reset to 0 if negative or > 0.8.
+    Value of color reset to 'Blues' if not found in in COLOR_GRADIENTS
+    (valid matplotlib colormap names).
+    """
+    if map_kind == "data":
+        if color not in COLOR_GRADIENTS:
+            print("Unknown colormap name, reset to 'Blues'")
+            color = "Blues"
+
+        # maybe reset range:
+        if min_bound < 0:
+            print("Invalid negative min bound, reset to 0.0")
+            min_bound = 0.0
+
+        if min_bound > 0.8:
+            print("Excessive min bound, reset to 0.0")
+            min_bound = 0.0
+
+        n_resample = 10
+        bounds = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5,
+                  0.6, 0.7, 0.8, 0.9, 1.0]
+
+        if min_bound > 0:
+            bounds = [n for n in bounds if n >= min_bound]
+            n_resample = len(bounds)
+
+        gradcols = mpl.colormaps[color].resampled(n_resample)
+        newcolors = gradcols(np.linspace(0, 1, n_resample))
+        cmap = ListedColormap(newcolors, name="Dat")
+        bnorm = BoundaryNorm(bounds, cmap.N)
+    else:
+        n_resample = 8
+        top = mpl.colormaps["Reds_r"].resampled(n_resample)
+        bottom = mpl.colormaps["Blues"].resampled(n_resample)
+        newcolors = np.vstack((top(np.linspace(0, 1, n_resample)),
+                               bottom(np.linspace(0, 1, n_resample))))
+        cmap = ListedColormap(newcolors, name="RB")
+        bnorm = BoundaryNorm([-1.0, -0.5, -0.3, -0.1, 0.1, 0.3, 0.5, 1.0], cmap.N)
+
+    return cmap, bnorm
+
+
+def plot_heatmap(df: pd.DataFrame,
+                 ax=None, fig=None,
+                 map_kind: str = "data",
+                 min_bound: float = 0.0,
+                 color: str = "Blues"   # data heatmap
+                 ):
     """Draw the pcolormesh heatmap on the provided Axis.
     pcolormesh can handle unevenly spaced or skewed (non-rectilinear) grids.
     """
     # get color map & boundaries
-    n_resample = 10
-    blu = mpl.colormaps["Blues"].resampled(n_resample)
-    newcolors = blu(np.linspace(0, 1, n_resample))
-    cmap = ListedColormap(newcolors, name="B10")
-    bnorm = BoundaryNorm([0.0, 0.1, 0.2, 0.3, 0.4, 0.5,
-                          0.6, 0.7, 0.8, 0.9, 1.0], cmap.N)
-    kws={'rasterized':True, 'norm':bnorm}
-
+    cmap, bnorm = get_cmap_bnorm(map_kind=map_kind,
+                                 min_bound=min_bound,
+                                 color=color)
     if ax is None:
         ax = plt.gca()
     if fig is None:
@@ -66,6 +120,8 @@ def plot_heatmap(df: pd.DataFrame, ax=None, fig=None):
     # Center the ticks in the middle of each box
     x = np.arange(nC) + 0.5
     y = np.arange(nR) + 0.5
+
+    kws={'rasterized': True, 'norm': bnorm}
     mesh = ax.pcolormesh(x, y, plot_data, cmap=cmap, **kws)
 
     # Set the axis limits
@@ -82,8 +138,8 @@ def plot_heatmap(df: pd.DataFrame, ax=None, fig=None):
                             boundaries=bnorm, 
                             orientation='vertical',
                             pad=0.02,    # closer to plot
-                            shrink=0.8,  # Shrinks the height to 80% of the axis height
-                            aspect=25,   # Higher number makes the width thinner (default is 20)
+                            shrink=0.75,  # Shrinks the height to 80% of the axis height
+                            aspect=30,   # Higher number makes the width thinner (default is 20)
     )
     cb.outline.set_linewidth(0)
     cb.set_label('occ', rotation=270, labelpad=5, weight="bold")    
@@ -138,13 +194,22 @@ def maybe_resize(figsize: tuple, shape: tuple, incr:int=1) -> tuple:
 def heatmap_from_df(df: pd.DataFrame,
                     fig_size: tuple,
                     fig_save_fp: Path=None,
-                    title: str = "",):
+                    title: str = "",
+                    map_kind: str = "data",
+                    min_bound: float = 0.0,
+                    color: str = "Blues"   # data heatmap
+                    ):
     """Wrapper function to plot_heatmap: Creates fig & ax prior to call;
     defines and sets title, decides if fig is to be saved.
     """
     figsize = maybe_resize(fig_size, df.shape)
     fig, ax = plt.subplots(1,1, figsize=figsize, layout='constrained')
-    plot_heatmap(df, ax=ax, fig=fig)
+    plot_heatmap(df, ax=ax, fig=fig,
+                 map_kind=map_kind,
+                 min_bound=min_bound,
+                 color=color
+                 )
+
     ax.set_title(title, fontdict={'weight':'bold', "size":10});
     if fig_save_fp is not None:
         plt.savefig(fig_save_fp)
