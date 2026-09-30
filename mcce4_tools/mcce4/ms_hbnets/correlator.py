@@ -491,9 +491,11 @@ class HbCorrelator:
             return
 
         heatmap_from_df(df,
-                        fig_size=fig_size,
                         fig_save_fp=fig_save_fp,
-                        title=title)
+                        title=title,
+                        map_kind="corr",
+                        fig_size=fig_size,
+                        )
         return
 
     def process_pairs(self):
@@ -503,15 +505,19 @@ class HbCorrelator:
         if not self.ok:
             return
         
-        if not self.split_bk:
-            # self.pairs_df is filtered
+        if not self.split_bk:  # self.pairs_df is filtered
             # data heatmap:
             matrix_df = self.pairs_df.pivot(index="Donor", columns="Acceptor", values="occ").fillna(0)
             title = f"H-bond Donor - Acceptor pairs\n({self.input_fp2.stem}, filtered)"
             png_fp = self.input_fp2.with_name(f"{self.input_fp2.stem}_filtered.png")
             heatmap_from_df(matrix_df,
+                            fig_save_fp=png_fp,
+                            title=title,
+                            #map_kind="data",
                             fig_size=self.figs_args.figsize_data,
-                            fig_save_fp=png_fp, title=title)
+                            min_bound=self.figs_args.data_cbar_min,
+                            color=self.figs_args.data_map_color,
+                            )
             
             # Get donors and Acceptors correlation:
             # Transpose and compute Donor (row) correlation
@@ -522,8 +528,13 @@ class HbCorrelator:
                 title = "H-bond Donors correlation (filtered)"
                 png_fp = self.input_fp2.with_name(f"{self.input_fp2.stem}_filtered_donors_corr.png")
                 heatmap_from_df(row_corr_mat,
+                                fig_save_fp=png_fp,
+                                title=title,
+                                map_kind="corr",
                                 fig_size=self.figs_args.figsize_donor_corr,
-                                fig_save_fp=png_fp, title=title)
+                                min_bound=self.figs_args.data_cbar_min,
+                                color=self.figs_args.data_map_color,
+                                )
             
             # Compute Acceptor (col) correlation
             col_corr_mat = matrix_df.corr()
@@ -533,8 +544,13 @@ class HbCorrelator:
                 title = "H-bond Acceptors correlation (filtered)"
                 png_fp = self.input_fp2.with_name(f"{self.input_fp2.stem}_filtered_acceptors_corr.png")
                 heatmap_from_df(col_corr_mat,
+                                fig_save_fp=png_fp,
+                                title=title,
+                                map_kind="corr",
                                 fig_size=self.figs_args.figsize_acceptor_corr,
-                                fig_save_fp=png_fp, title=title)
+                                min_bound=self.figs_args.data_cbar_min,
+                                color=self.figs_args.data_map_color,
+                                )
         else:
             # split non-BK, then BK:
             res_msk = self.pairs_df["with_bk"].eq(False)
@@ -548,9 +564,12 @@ class HbCorrelator:
                 title = f"H-bond Donor - Acceptor pairs, no BK\n({self.input_fp2.stem})"
                 png_fp = self.input_fp2.with_name(f"{self.input_fp2.stem}.png")
                 heatmap_from_df(matrix_df,
-                                fig_size=self.figs_args.figsize_data,
                                 fig_save_fp=png_fp,
-                                title=title)
+                                title=title,
+                                fig_size=self.figs_args.figsize_data,
+                                min_bound=self.figs_args.data_cbar_min,
+                                color=self.figs_args.data_map_color,                                
+                                )
                 
                 # get the 2 kinds or corr:
                 row_corr_mat = matrix_df.T.corr()
@@ -560,9 +579,13 @@ class HbCorrelator:
                     title = f"H-bond Donors correlation, no BK\n({self.input_fp2.stem})"
                     png_fp = self.input_fp2.with_name(f"{self.input_fp2.stem}_donors_corr.png")
                     heatmap_from_df(row_corr_mat,
-                                    fig_size=self.figs_args.figsize_donor_corr,
                                     fig_save_fp=png_fp,
-                                    title=title)
+                                    title=title,
+                                    map_kind="corr",
+                                    fig_size=self.figs_args.figsize_donor_corr,
+                                    min_bound=self.figs_args.data_cbar_min,
+                                    color=self.figs_args.data_map_color,
+                                    )
                 
                 col_corr_mat = matrix_df.corr()
                 if col_corr_mat.shape[0] < 2:
@@ -571,9 +594,13 @@ class HbCorrelator:
                     title = f"H-bond Acceptors correlation, no BK\n({self.input_fp2.stem})"
                     png_fp = self.input_fp2.with_name(f"{self.input_fp2.stem}_acceptors_corr.png")
                     heatmap_from_df(col_corr_mat,
-                                    fig_size=self.figs_args.figsize_acceptor_corr,
                                     fig_save_fp=png_fp,
-                                    title=title)
+                                    title=title,
+                                    map_kind="corr",
+                                    fig_size=self.figs_args.figsize_acceptor_corr,
+                                    min_bound=self.figs_args.data_cbar_min,
+                                    color=self.figs_args.data_map_color,
+                                    )
             else:
                 print("No hb pairs of residue-residue kind.")
 
@@ -588,9 +615,12 @@ class HbCorrelator:
                 title = f"H-bond Donor - Acceptor pairs, BK\n({self.input_fp2.stem})"
                 png_fp = self.input_fp2.with_name(f"{self.input_fp2.stem}_bk.png")
                 heatmap_from_df(matrix_df,
-                                fig_size=self.figs_args.figsize_data_bk,
                                 fig_save_fp=png_fp,
-                                title=title) 
+                                title=title,
+                                fig_size=self.figs_args.figsize_data_bk,
+                                min_bound=self.figs_args.data_cbar_min,
+                                color=self.figs_args.data_map_color,
+                                ) 
                 
                 # get the 2 kinds or corr:
                 row_corr_mat = matrix_df.T.corr()
@@ -600,9 +630,13 @@ class HbCorrelator:
                     title = f"H-bond Donors correlation, BK\n({self.input_fp2.stem})"
                     png_fp = self.input_fp2.with_name(f"{self.input_fp2.stem}_donors_corr_bk.png")
                     heatmap_from_df(row_corr_mat,
-                                    fig_size=self.figs_args.figsize_donor_corr_bk ,
                                     fig_save_fp=png_fp,
-                                    title=title)
+                                    title=title,
+                                    map_kind="corr",
+                                    fig_size=self.figs_args.figsize_donor_corr_bk,
+                                    min_bound=self.figs_args.data_cbar_min,
+                                    color=self.figs_args.data_map_color,
+                                    )
                 
                 col_corr_mat = matrix_df.corr()
                 if col_corr_mat.shape[0] < 2:
@@ -611,9 +645,13 @@ class HbCorrelator:
                     title = f"H-bond Acceptors correlation, BK\n({self.input_fp2.stem})"
                     png_fp = self.input_fp2.with_name(f"{self.input_fp2.stem}_acceptors_corr_bk.png")
                     heatmap_from_df(col_corr_mat,
-                                    fig_size=self.figs_args.figsize_acceptor_corr_bk,
                                     fig_save_fp=png_fp,
-                                    title=title)
+                                    title=title,
+                                    map_kind="corr",
+                                    fig_size=self.figs_args.figsize_acceptor_corr_bk,
+                                    min_bound=self.figs_args.data_cbar_min,
+                                    color=self.figs_args.data_map_color,
+                                    )
             else:
                 print(" No hb pairs of residue-backbone kind.")
 
@@ -665,8 +703,12 @@ class HbCorrelator:
             title = "States H-bond Donor - Acceptor pairs data"
             png_fp = self.input_fp2.with_name(f"{self.input_fp2.stem}_filtered.png")
             heatmap_from_df(matrix_df,
+                            fig_save_fp=png_fp,
+                            title=title,
                             fig_size=self.figs_args.figsize_data,
-                            fig_save_fp=png_fp, title=title)
+                            min_bound=self.figs_args.data_cbar_min,
+                            color=self.figs_args.data_map_color,
+                            ) 
         else:
             # split non-BK, then BK:
             res_msk = self.pairs_df["with_bk"].eq(False)
@@ -681,9 +723,12 @@ class HbCorrelator:
                 title = "States H-bond Donor - Acceptor pairs data, no BK"
                 png_fp = self.input_fp2.with_name(f"{self.input_fp2.stem}.png")
                 heatmap_from_df(matrix_df,
-                                fig_size=self.figs_args.figsize_data,
                                 fig_save_fp=png_fp,
-                                title=title)
+                                title=title,
+                                fig_size=self.figs_args.figsize_data,
+                                min_bound=self.figs_args.data_cbar_min,
+                                color=self.figs_args.data_map_color,
+                                )
             else:
                 print(f" No states hb pairs of res-res kind in {self.input_fp2.name}.")
 
@@ -699,9 +744,12 @@ class HbCorrelator:
                 title = "States H-bond Donor - Acceptor pairs data, BK)"
                 png_fp = self.input_fp2.with_name(f"{self.input_fp2.stem}_bk.png")
                 heatmap_from_df(matrix_df,
-                                fig_size=self.figs_args.figsize_data_bk,
                                 fig_save_fp=png_fp,
-                                title=title)
+                                title=title,
+                                fig_size=self.figs_args.figsize_data_bk,
+                                min_bound=self.figs_args.data_cbar_min,
+                                color=self.figs_args.data_map_color,
+                                )
             else:
                 print(f" No states hb pairs of res-bk kind in {self.input_fp2.name}.")
 

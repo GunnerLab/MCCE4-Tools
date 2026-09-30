@@ -38,6 +38,16 @@ from mcce4.ms_hbnets.plotting import DEFAULT_FIGSIZE
 
 
 APP = "ms_hbnets"
+PLOTTING_ARGS = [
+    'data_cbar_min',
+    'data_map_color',
+    'figsize_data',
+    'figsize_donor_corr',
+    'figsize_acceptor_corr',
+    'figsize_data_bk',
+    'figsize_donor_corr_bk',
+    'figsize_acceptor_corr_bk',
+]
 
 
 def process_pairs(args: Union[dict, Namespace]):
@@ -66,7 +76,7 @@ def process_pairs(args: Union[dict, Namespace]):
         else:
             print("Pairs H_bonds checks: failed.")
 
-    figs_args = {k: v for k, v in vars(args).items() if k.startswith("figsize")}
+    figs_args = {k: v for k, v in vars(args).items() if k in PLOTTING_ARGS}
     HbCorr = HbCorrelator(mshb,
                           hb_kind="pairs",
                           pairs_of_interest_fp=args.pairs_of_interest_csv,
@@ -107,7 +117,7 @@ def process_states(args: Union[dict, Namespace]):
         else:
             print("Microstates H_bonds checks: failed.")
 
-    figs_args = {k: v for k, v in vars(args).items() if k.startswith("figsize")}
+    figs_args = {k: v for k, v in vars(args).items() if k in PLOTTING_ARGS}
     HbCorr = HbCorrelator(mshb,
                           hb_kind="states",
                           pairs_of_interest_fp=args.pairs_of_interest_csv,
@@ -206,10 +216,25 @@ def cli_parser():
 File listing comma-separated H-bonding pairs that will filter the main data file
 prior to producing the heatmaps; Default: %(default)s"""
                     )
+    cp.add_argument("-data-cbar-min",
+                    type=float,
+                    default=0.0,
+                    help="Lower bound of the colorbar in the data heatmaps; Default: %(default)s"
+                    )
+    cp.add_argument("-data-map-color",
+                    type=str,
+                    default="Blues",
+                    help="Color of the data heatmaps; Default: %(default)s"
+                    )
     cp.add_argument("--run-checks",
                    action="store_true",
                    default=False,
                    help="Perform checks on main outputs; Default: %(default)s"
+                   )
+    cp.add_argument("--reload",
+                   action="store_true",
+                   default=False,
+                   help="Reload the microstates data (overwrites existing output files); Default: %(default)s"
                    )
     cp.add_argument("-v", "--verbose",
                    action="store_true",
@@ -220,7 +245,6 @@ prior to producing the heatmaps; Default: %(default)s"""
         required=True,
         title=f"{APP} sub-commands",
         dest="subparser_name",
-        description=f"Sub-commands of the {APP} tool.",
     )
     sub1 = subparsers.add_parser(
         "pairs",
@@ -339,7 +363,9 @@ Size of the hb (states) res-bk pairs data heatmap; Default: %(default)s"""
 def cli(argv=None):
     p = cli_parser()
     args = p.parse_args(argv)
-    #print(" cli args:\n", pformat(args.__dict__, sort_dicts=False))
+    print("CLI options used::",
+          pformat(args.__dict__, sort_dicts=False),
+          sep="\n")
 
     args.func(args)
 
