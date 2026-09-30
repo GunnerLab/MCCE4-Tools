@@ -55,9 +55,6 @@ fHAH_FNAME = "hah_{}.txt"
 fHAH_EXPANDED = "expanded_hah_{}.csv"
 fPAIR_RES = "hb_pairs_res_{}.csv"
 
-OCC_PREC = 5
-min_occ = 10**(-OCC_PREC)
-min_occ_print = f"min occ >= {min_occ:.{OCC_PREC}f}"
 
 # mapping of iconf (donor, acceptor) pairs for filtering purposes:
 pair_classes = {
@@ -79,12 +76,18 @@ def num_prec(num: Union[float, int]) -> int:
     if isinstance(num, int):
         return 0
     num_str = str(num).lower()
-    if  'e' in num_str:
+    if 'e' in num_str:
         return int("".join(c for c in num_str.split('e')[1] if c.isnumeric()))
         
     if '.' in num_str:
         return len(num_str.split('.')[1])
     return 0
+
+
+OCC_PREC = 5
+min_occ = 10**(-OCC_PREC)
+printed_occ = "0." + "".join('0' for i in range(OCC_PREC - 1)) + "1"
+min_occ_print = f"min occ >= {float(min_occ):.{OCC_PREC}f}"
 
 
 def get_resid(confid:str) -> str:
@@ -583,7 +586,7 @@ class MSout_hb:
             self.proceed = False
             return
 
-        self.min_occ = min_occ
+        self.min_occ = float(min_occ)
         self.prec = num_prec(self.min_occ)
         self.min_occ_print = f"min occ >= {self.min_occ:.{self.prec}f}"
 

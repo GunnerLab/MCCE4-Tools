@@ -32,7 +32,7 @@ from mcce4.io_utils import show_elapsed_time
 from mcce4.ms_hbnets.correlator import HbCorrelator
 from mcce4.ms_hbnets.msout_hb import do_checks
 from mcce4.ms_hbnets.msout_hb import is_int
-from mcce4.ms_hbnets.msout_hb import min_occ as MIN_OCC
+from mcce4.ms_hbnets.msout_hb import min_occ as MIN_OCC, printed_occ
 from mcce4.ms_hbnets.msout_hb import MSout_hb
 from mcce4.ms_hbnets.plotting import DEFAULT_FIGSIZE
 
@@ -48,7 +48,7 @@ def process_pairs(args: Union[dict, Namespace]):
     process_start = time()
     mshb = MSout_hb(args.mcce_dir, args.ph, args.eh,
                     load_states=False,
-                    min_occ=args.min_occ,
+                    min_occ=float(args.min_occ),
                     verbose=args.verbose)
 
     if not mshb.proceed:
@@ -70,7 +70,7 @@ def process_pairs(args: Union[dict, Namespace]):
     HbCorr = HbCorrelator(mshb,
                           hb_kind="pairs",
                           pairs_of_interest_fp=args.pairs_of_interest_csv,
-                          min_occ=args.min_occ,
+                          min_occ=float(args.min_occ),
                           figs_args=figs_args,
     )
     HbCorr.process_pairs()
@@ -90,7 +90,7 @@ def process_states(args: Union[dict, Namespace]):
     mshb = MSout_hb(args.mcce_dir, args.ph, args.eh,
                     n_target_states=args.n_states,
                     load_states=True,
-                    min_occ=args.min_occ,
+                    min_occ=float(args.min_occ),
                     verbose=args.verbose)
 
     if not mshb.proceed:
@@ -111,7 +111,7 @@ def process_states(args: Union[dict, Namespace]):
     HbCorr = HbCorrelator(mshb,
                           hb_kind="states",
                           pairs_of_interest_fp=args.pairs_of_interest_csv,
-                          min_occ=args.min_occ,
+                          min_occ=float(args.min_occ),
                           figs_args=figs_args,
     )
     HbCorr.process_states()
@@ -196,8 +196,9 @@ def cli_parser():
                     help="Titration Eh; Default: %(default)s"
                     )
     cp.add_argument("-min-occ",
+                    type=float,
                     default=MIN_OCC,
-                    help="To return data with this minimal occupancy; Default: %(default)s"
+                    help="To return data with this minimal occupancy; Default: " + printed_occ
                     )
     cp.add_argument("-pairs-of-interest-csv",
                     default=None,
