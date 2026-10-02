@@ -15,7 +15,9 @@ import pandas as pd
 
 
 DEFAULT_FIGSIZE = (6,6)  # uniq donors, uniq acceptors counts < 30
-
+# single color
+COLOR_GRADIENTS = ['Blues','Greens','Greys','Oranges','Purples','Reds']
+AVAIL_COLORS = ", ".join(c for c in COLOR_GRADIENTS)
 
 def despine(ax = None, which=['top','right']):
     """which ([str])): 'left','top','right','bottom'."""
@@ -38,11 +40,6 @@ def axis_ticklabels_overlap(labels: list) -> bool:
     except RuntimeError:
         # Issue on macos backend raises an error in the above code
         return False
-
-
-COLOR_GRADIENTS = ['Blues', 'BuGn', 'BuPu', 'GnBu', 'Greens', 'Greys',
-                   'OrRd', 'Oranges', 'PuBu', 'PuBuGn', 'PuRd', 'Purples',
-                   'RdPu', 'Reds', 'YlGn', 'YlGnBu', 'YlOrBr', 'YlOrRd']
 
 
 def get_cmap_bnorm(map_kind: str = "data",
@@ -120,7 +117,6 @@ def plot_heatmap(df: pd.DataFrame,
     # Center the ticks in the middle of each box
     x = np.arange(nC) + 0.5
     y = np.arange(nR) + 0.5
-
     kws={'rasterized': True, 'norm': bnorm}
     mesh = ax.pcolormesh(x, y, plot_data, cmap=cmap, **kws)
 
@@ -168,7 +164,7 @@ def plot_heatmap(df: pd.DataFrame,
     return ax
 
 
-def maybe_resize(figsize: tuple, shape: tuple, incr:int=1) -> tuple:
+def maybe_resize(figsize: tuple, shape: tuple, incr:int=0.5) -> tuple:
     """Applies to default sizes.
     """
     if figsize != DEFAULT_FIGSIZE:
@@ -197,7 +193,8 @@ def heatmap_from_df(df: pd.DataFrame,
                     title: str = "",
                     map_kind: str = "data",
                     min_bound: float = 0.0,
-                    color: str = "Blues"   # data heatmap
+                    color: str = "Reds",   # data heatmap
+                    #ticklabels_fontsize: int = None,
                     ):
     """Wrapper function to plot_heatmap: Creates fig & ax prior to call;
     defines and sets title, decides if fig is to be saved.
@@ -210,7 +207,9 @@ def heatmap_from_df(df: pd.DataFrame,
                  color=color
                  )
 
-    ax.set_title(title, fontdict={'weight':'bold', "size":10});
+    ax.set_title(title, fontdict={'weight':'bold', "size":10})
+    # if ticklabels_fontsize is not None and map_kind=="corr":
+    #     ax.tick_params(axis='both', labelsize=8)
     if fig_save_fp is not None:
         plt.savefig(fig_save_fp)
         print(f"   Figure: {fig_save_fp!s}; Size: {figsize}")

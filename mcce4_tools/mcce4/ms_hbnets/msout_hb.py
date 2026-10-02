@@ -544,6 +544,7 @@ class MSout_hb:
            membership in the column 'state_id', which is the index found in the 'ix' column
            of the 'hb_states_{pheh}.csv' file.
          - min_occ (bool, 0.00001): Minimal ms occ to return.
+         - reload (bool, False): Reload msout file data (overwrite existing output files)
          - verbose (bool, False): Print more details if True.
         """
         self.proceed = True
