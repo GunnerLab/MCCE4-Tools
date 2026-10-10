@@ -5,6 +5,7 @@ Module: plotting.py
 
 Codebase: mcce4/ms_hbnets/plotting.py
 """
+import logging
 from pathlib import Path
 
 import matplotlib as mpl
@@ -18,6 +19,7 @@ DEFAULT_FIGSIZE = (6,6)  # uniq donors, uniq acceptors counts < 30
 # single color
 COLOR_GRADIENTS = ['Blues','Greens','Greys','Oranges','Purples','Reds']
 AVAIL_COLORS = ", ".join(c for c in COLOR_GRADIENTS)
+
 
 def despine(ax = None, which=['top','right']):
     """which ([str])): 'left','top','right','bottom'."""
@@ -55,16 +57,16 @@ def get_cmap_bnorm(map_kind: str = "data",
     """
     if map_kind == "data":
         if color not in COLOR_GRADIENTS:
-            print("Unknown colormap name, reset to 'Blues'")
+            logging.info("Unknown colormap name, reset to 'Blues'")
             color = "Blues"
 
         # maybe reset range:
         if min_bound < 0:
-            print("Invalid negative min bound, reset to 0.0")
+            logging.info("Invalid negative min bound, reset to 0.0")
             min_bound = 0.0
 
         if min_bound > 0.8:
-            print("Excessive min bound, reset to 0.0")
+            logging.info("Excessive min bound, reset to 0.0")
             min_bound = 0.0
 
         n_resample = 10
@@ -212,7 +214,7 @@ def heatmap_from_df(df: pd.DataFrame,
     #     ax.tick_params(axis='both', labelsize=8)
     if fig_save_fp is not None:
         plt.savefig(fig_save_fp)
-        print(f"   Figure: {fig_save_fp!s}; Size: {figsize}")
+        logging.info(f"  Figure: {fig_save_fp!s}; Size: {figsize}")
 
     plt.draw()
     

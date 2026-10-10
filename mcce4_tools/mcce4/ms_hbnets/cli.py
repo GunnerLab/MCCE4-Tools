@@ -20,9 +20,9 @@ output files are not found), and saves several heatmaps:
 from argparse import ArgumentParser
 from argparse import Namespace
 from argparse import RawTextHelpFormatter
-from inspect import CO_ASYNC_GENERATOR
+from datetime import datetime
+import logging
 from pathlib import Path
-from pprint import pformat
 from time import time
 from typing import Union
 
@@ -33,12 +33,15 @@ from mcce4.io_utils import show_elapsed_time
 from mcce4.ms_hbnets.correlator import HbCorrelator
 from mcce4.ms_hbnets.msout_hb import do_checks
 from mcce4.ms_hbnets.msout_hb import is_int
-from mcce4.ms_hbnets.msout_hb import min_occ as MIN_OCC, printed_occ
+from mcce4.ms_hbnets.msout_hb import MIN_OCC, printed_occ
 from mcce4.ms_hbnets.msout_hb import MSout_hb
 from mcce4.ms_hbnets.plotting import DEFAULT_FIGSIZE, AVAIL_COLORS
 
 
 APP = "ms_hbnets"
+#LOG = APP + ".log"
+
+
 PLOTTING_ARGS = [
     'data_cbar_min',
     'data_map_color',
@@ -53,11 +56,28 @@ PLOTTING_ARGS = [
 ]
 
 
+# def setup_logging(level: str = "INFO"):
+#     """Configure logger to screen & file."""
+#     log_format = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s",
+#                                    datefmt='%m-%d %H:%M')
+#     screen_handler = logging.StreamHandler(sys.stdout)
+#     screen_handler.setFormatter(log_format)
+#     file_handler = logging.FileHandler(LOG,encoding="utf-8")
+#     file_handler.setFormatter(log_format)
+#     logging.basicConfig(
+#         level=getattr(logging, level.upper(), logging.INFO),
+#         format=log_format,
+#         handlers=[screen_handler, file_handler],
+#     )
+
+# setup_logging()
+
+
 def process_pairs(args: Union[dict, Namespace]):
     if isinstance(args, dict):
         args = Namespace(**args)
 
-    print("Processing pairs...")
+    logging.info("Processing pairs...")
     process_start = time()
     mshb = MSout_hb(args.mcce_dir, args.ph, args.eh,
                     load_states=False,
@@ -66,19 +86,19 @@ def process_pairs(args: Union[dict, Namespace]):
                     verbose=args.verbose)
 
     if not mshb.proceed:
-        print(f"[STOP]: The H-bond collection pipeline cannot be run in {Path(args.mcce_dir).resolve()!s}")
-        show_elapsed_time(process_start, info="Loading MSout_hb data")
+        logging.critical(f"The H-bond collection pipeline cannot be run in {Path(args.mcce_dir).resolve()!s}")
         return
- 
-    mshb.run_ms_pipeline(load_states=False)
-    print("Microstates H_bonds collection for pairs over.")
 
+    mshb.run_ms_pipeline(load_states=False)
+    logging.info("Microstates H_bonds collection for pairs over.")
+
+    # bypassed; under review
     if args.run_checks:
         status = do_checks(args.mcce_dir, args.ph, args.eh)
-        if status:
-            print("Pairs H_bonds checks: passed.")
-        else:
-            print("Pairs H_bonds checks: failed.")
+        # if status:
+        #     logging.info("Pairs H_bonds checks: passed.")
+        # else:
+        #     logging.info("Pairs H_bonds checks: failed.")
 
     figs_args = {k: v for k, v in vars(args).items() if k in PLOTTING_ARGS}
 
@@ -89,8 +109,10 @@ def process_pairs(args: Union[dict, Namespace]):
                           split_BK=args.split_BK,
                           figs_args=figs_args,
     )
+    if not args.reload:
+        logging.info(mshb)
     HbCorr.process_pairs()
-    show_elapsed_time(process_start, info="H-bond pairs processing")
+    logging.info(show_elapsed_time(process_start, info="H-bond pairs processing"))
     if HbCorr.ok:
         plt.show()
 
@@ -111,18 +133,19 @@ def process_states(args: Union[dict, Namespace]):
                     verbose=args.verbose)
 
     if not mshb.proceed:
-        print(f"[STOP]: The H-bond collection pipeline cannot be run in {Path(args.mcce_dir).resolve()!s}")
+        logging.critical(f"The H-bond collection pipeline cannot be run in {Path(args.mcce_dir).resolve()!s}")
         return
 
     mshb.run_ms_pipeline(load_states=True)
-    print("Microstates H_bonds collection over.")
+    logging.info("Microstates H_bonds collection over.")
 
     if args.run_checks:
         status = do_checks(args.mcce_dir, args.ph, args.eh)
-        if status:
-            print("Microstates H_bonds checks: passed.")
-        else:
-            print("Microstates H_bonds checks: failed.")
+        ## under review
+        # if status:
+        #     logging.info("Microstates H_bonds checks: passed.")
+        # else:
+        #     logging.critical("Microstates H_bonds checks: failed.")
 
     figs_args = {k: v for k, v in vars(args).items() if k in PLOTTING_ARGS}
     HbCorr = HbCorrelator(mshb,
@@ -133,8 +156,10 @@ def process_states(args: Union[dict, Namespace]):
                           split_BK=args.split_BK,
                           figs_args=figs_args,
     )
+    if not args.reload:
+        logging.info(mshb)
     HbCorr.process_states()
-    show_elapsed_time(process_start, info="H-bond states processing")
+    logging.info(show_elapsed_time(process_start, info="H-bond states processing"))
     if HbCorr.ok:
         plt.show()
 
@@ -155,7 +180,7 @@ def to_figsize(strtpl: str):
     # Split by comma and convert individual items
     nums = strtpl.split(',')
     if len(nums) < 2:
-        print("Option value: figsize must evaluate to at least a 2-tuple: 'w,h' or ',h' or 'w,'; default used.")
+        logging.warning("Option value: figsize must evaluate to at least a 2-tuple: 'w,h' or ',h' or 'w,'; default used.")
         return DEFAULT_FIGSIZE
 
     if not nums[0]:
@@ -218,8 +243,8 @@ Requires the structural H-bonds data output by the `detect_hbonds` tool.""",
     cp.add_argument("-pairs-of-interest-csv",
                     default=None,
                     help="""
-File listing comma-separated H-bonding pairs that will filter the main data file
-prior to producing the heatmaps; Default: %(default)s"""
+File listing comma-separated H-bonding pairs in resid format (ex: R_A112,N_A106), that will 
+filter the main data file prior to producing the heatmaps; Default: %(default)s"""
                     )
     cp.add_argument("-data-cbar-min",
                     type=float,
@@ -244,9 +269,8 @@ prior to producing the heatmaps; Default: %(default)s"""
     cp.add_argument("-v", "--verbose",
                    action="store_true",
                    default=False,
-                   help="Output more details and save 'dropped_fixedoff_confs.tsv' during reduction; Default: %(default)s"
+                   help="Output more details from the mshout file loader; Default: %(default)s"
                    )
-
     subparsers = p.add_subparsers(
         required=True,
         title=f"{APP} sub-commands",
@@ -403,13 +427,20 @@ compute each group correlation. Always true without filtering with pairs of inte
     return p
 
 
+def run_header(args: Namespace) -> str:
+    args_d = vars(args)
+    return (
+        f"\n{"-" * 60}\n"
+        f"Tool ms_hbnets: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+        f"  Options used:\n{"\n ".join(f"\t{k} = {v}" for k,v in args_d.items())}\n"
+        f"{"-" * 60}"
+    )
+
+
 def cli(argv=None):
     p = cli_parser()
     args = p.parse_args(argv)
-    print("CLI options used ::",
-          pformat(args.__dict__, sort_dicts=False) + "\n" + "-"*60,
-          sep="\n")
-
+    logging.info(run_header(args))
     args.func(args)
 
     return

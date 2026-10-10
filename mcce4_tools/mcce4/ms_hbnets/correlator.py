@@ -9,19 +9,18 @@ Handle the filtering and setup for generating heatmaps.
 The states correlation heatmaps are obtain using parallel processing.
 """
 from argparse import Namespace
+import logging
 from multiprocessing import Pool
 from pathlib import Path
-from pprint import pformat
 from re import split as re_split, findall
 from typing import Union
 
 import numpy as np
 import pandas as pd
 
-from mcce4.ms_hbnets.msout_hb import get_resid
-from mcce4.ms_hbnets.msout_hb import min_occ as MIN_OCC
+from mcce4.ms_hbnets.msout_hb import get_resid, num_prec
+from mcce4.ms_hbnets.msout_hb import MIN_OCC, PREC
 from mcce4.ms_hbnets.msout_hb import MSout_hb
-from mcce4.ms_hbnets.msout_hb import num_prec
 from mcce4.ms_hbnets.plotting import DEFAULT_FIGSIZE
 from mcce4.ms_hbnets.plotting import heatmap_from_df
 
@@ -41,33 +40,39 @@ def get_resnum(resid: str):
     return int(resid.rsplit("_")[-1][1:])
 
 
-def get_hb_states_header(hb_states_fp: Union[str, Path]) -> str:
-    with open(hb_states_fp) as fh:
+def get_file_header(file_fp: Union[str, Path]) -> str:
+    """Return the first line of a file.
+       In this context: a commented, informative line.
+    """
+    with open(file_fp) as fh:
         hdr = fh.readline().strip()
     return hdr
 
 
 def format_num(num):
-    """Return condensed format up to millions.
+    """Return condensed format for plots, up to millions.
     """
     M = 1_000_000
     K = 1_000
     if num > M:
-        return f"{num / M:g}M"
+        return f"{num/M:.4g}M"
     elif num > K:
-        return f"{num / K:g}K"
+        return f"{num/K:.4g}K"
     return num
 
 
 def get_pairs_of_interest_df(pairs_of_interest_fp: Union[str, Path]) -> pd.DataFrame:
+    """Loads user's pairs of interest from input file.
+    Assumed format example per line: R_A112,N_A106
+    """
     poi_fp = Path(pairs_of_interest_fp)
     if not poi_fp.exists():
-        print("File not found:", pairs_of_interest_fp)
+        logging.warning(f"File not found: {pairs_of_interest_fp!s}")
         return None
 
     poi_df = pd.read_csv(poi_fp, comment="#", names=["res_d", "res_a"])
     if not poi_df.shape[0]:
-        print("Empty 'pairs of interest' file:", pairs_of_interest_fp)
+        logging.warning(f"Empty 'pairs of interest' file: {pairs_of_interest_fp!s}")
         return None
 
     return poi_df
@@ -95,10 +100,10 @@ class HbCorrelator:
          - figs_args([dict, argparse.Namespace]): To control the heatmap sizes and the lowest
            bound of the cbar and color of the data heatmaps.
         """
-        print("\nHbCorrelator start...")
+        logging.info("HbCorrelator start...")
         self.ok = True
         if hb_kind not in HB_KINDS:
-            print(f" ValueError: hb_kind must be one of {HB_KINDS}")
+            logging.error(f"ValueError: hb_kind must be one of {HB_KINDS}")
             self.ok = False
             return
         self.hb_kind = hb_kind
@@ -107,13 +112,15 @@ class HbCorrelator:
         if not self.ok:
             return
         self.input_fp1, self.input_fp2 = inputs
+        self.file_hdr: str = ""
+        self.file_hdr = get_file_header(self.input_fp1)
 
         self.mcce_dir = hbms.run_dir
         self.pheh_str = hbms.pheh_str
         self.min_occ = min_occ
         self.prec = num_prec(float(self.min_occ))
         self.min_occ_print = f"min occ >= {self.min_occ:.{self.prec}f}"
-        print(f" Heatmaps min_occ: {self.min_occ_print}")
+        logging.info(f"Heatmaps min_occ: {self.min_occ_print}")
 
         self.poi_df: pd.DataFrame = None
         self.split_bk = True
@@ -124,7 +131,7 @@ class HbCorrelator:
                 return
             self.split_bk = False or split_BK
         if self.split_bk:
-            print(" The hb pairs will be divided into res-res and res-BK pairs to reduce the heatmap size.")
+            logging.info("The hb pairs will be divided into res-res and res-BK pairs to reduce the heatmap size.")
   
         # Populated by get_pairs_data :
         self.n_rows: int = 0
@@ -141,10 +148,6 @@ class HbCorrelator:
         self.corr_wise: str = "col"
         self.split_kind: str = None
         self.include_states_da_corr = include_states_da_corr
-        # used in process_states:
-        self.states_hdr: str = ""
-        if self.hb_kind == "states":
-             self.states_hdr = get_hb_states_header(self.input_fp1)
         
         self.pairs_df = None  # main df, ready for splitting if needed
         # filtered with pairs_of_interest_fp is given & min_occ:  
@@ -164,7 +167,7 @@ class HbCorrelator:
         Files for 'pairs' and 'states' processing
         """
         if self.hb_kind == "pairs":
-            fp1 = hbms.pairs_csv   # not currently needed, integrity test
+            fp1 = hbms.pairs_csv
             fp2 = hbms.pairs_res_csv
         else:
             fp1 = hbms.states_csv
@@ -173,7 +176,7 @@ class HbCorrelator:
         if fp1.exists() and fp2.exists():
             return fp1, fp2
         else:
-            print(f"Missing file(s): At least once of the csv was not found: {fp1.name}, {fp2.name}")
+            logging.error(f"Missing file(s): At least one of the csv was not found: {fp1.name}, {fp2.name}")
             self.ok = False
 
         return None
@@ -181,12 +184,19 @@ class HbCorrelator:
     def _load_csv(self, csv_fp: Path) -> pd.DataFrame:
         """Load state_pairs or pairs_res csv and maybe update the csv format.
         """
+        # must be hb_states_pairs or hb_pairs_res:
+        file_check = csv_fp.name == self.input_fp2.name
+        if not file_check:
+            logging.error("Data file to load must be either hb_states_pairs_*.csv or hb_pairs_res_*.csv")
+            self.ok = False
+            return
+
         df = pd.read_csv(csv_fp, comment="#")
         save = False
 
         if "res_d" not in df.columns:
             save = True
-            print(" Adding 'res_d' and 'res_a' columns to get residue-based names and indices...")
+            logging.info("Adding 'res_d' and 'res_a' columns to get residue-based names and indices...")
             # confids -> short resid:
             df[["res_d","res_a"]] = df.apply(lambda x: pd.Series([get_resid(x["donor"]),
                                                                   get_resid(x["acceptor"])]), axis=1)
@@ -197,24 +207,22 @@ class HbCorrelator:
             df.loc[msk_hoh, "res_d"] = df.loc[msk_hoh, "res_d"].str.replace(r'^HOH', 'w', regex=True)
             df.loc[msk_hoh, "res_a"] = df.loc[msk_hoh, "res_a"].str.replace(r'^HOH', 'w', regex=True)
 
+        if "Mi" in df.columns or "index" in df.columns:
+            # previous format of hb_states_pairs file
+            save = True
+            logging.info(f"Updating {csv_fp.name} with conformers collapsed to resid...")
+            # previous version: file has both confids and resid
+            # collapse confs to resid with res occ = max conf occ:
+            df = df.groupby(["res_d","res_a"], as_index=False).agg(
+                {"count":"max", "occ": "max", "with_bk": "max"}
+                )
+            df["occ"] = df["occ"].round(PREC)
+            df["count"] = df["count"].round(0).astype("int32")
+            # same columns as in hb_pairs_res:
+            df = df[["res_d", "res_a", "count","occ", "with_bk"]]
+            
         if save:
-            # output file predates codebase update
-            if self.hb_kind == "states":  # preserve the commented header
-                hdr = get_hb_states_header(csv_fp)
-                with open(csv_fp, "w") as fo:
-                    fo.write(hdr+"\n")
-                    df.to_csv(fo, index=False)
-            else:
-                df.to_csv(csv_fp, index=False)
-
-        if self.hb_kind == "states":  # file has both confids and resid
-            resdf = (df.groupby(["res_d","res_a"], as_index=False)
-                     .agg({"count": "max", "occ": "max",
-                           "with_bk": "max", "Mi":"min", "Mj":"min"})
-                     .sort_values(by=["Mi", "Mj"])
-                     .reset_index(drop=True)
-                     )
-            return resdf
+            df.to_csv(csv_fp, index=False)
 
         return df
 
@@ -229,14 +237,14 @@ class HbCorrelator:
                 )
                 if msk.any():
                     resdf = resdf.loc[msk]
-                    print(f" Filtered pairs df shape: {resdf.shape}")
+                    logging.info(f"Filtered pairs count: {resdf.shape[0]}")
                     return resdf
                 else:
-                    print(" Found no matches for the given pairs of interest:", self.poi_df, sep="\n")
+                    logging.warrning(f"Found no matches for the given pairs of interest: {self.poi_df!s}")
                     self.ok = False
                     return None
             except Exception as e:
-                print(f" Could not filter the dataframe for pairs of interest. Error:\n{e}")
+                logging.error(f"Could not filter the dataframe for pairs of interest. Error:\n{e}")
                 self.ok = False
                 return None
 
@@ -246,12 +254,13 @@ class HbCorrelator:
         The pairs from the pairs_res file are the most occupied overall.
         These pairs define the size of the residue-based stored matrices.
 
-        Prep of the main df : filtered for poi & occ.
+        Prep of the main df: filtered for poi & occ.
         """
         if not self.ok:
             return
+        logging.info("Getting pairs data...")
 
-        resdf =  self._load_csv(self.input_fp2)
+        resdf = self._load_csv(self.input_fp2)
         # maybe filter:
         if self.poi_df is not None:
             df = self._filter_pairs_of_interest(resdf)
@@ -261,11 +270,12 @@ class HbCorrelator:
                 return
 
         # apply min occ mask:
+        resdf["occ"] = resdf["occ"].round(self.prec)
         occ_msk = resdf["occ"].ge(self.min_occ)
         if occ_msk.any():
             resdf = resdf.loc[occ_msk]
         else:
-            print(f" No hb pairs data at {self.min_occ_print}")
+            logging.warning(f"No hb pairs data @ {self.min_occ_print}")
             self.ok = False
             return
 
@@ -288,7 +298,7 @@ class HbCorrelator:
         if not self.ok:
             return
 
-        # will be output if split was done
+        # these dfs maybe loaded if split was done:
         res_respairs_df = None
         bk_respairs_df = None
         if not self.split_bk:  # => self.pairs_df is filtered
@@ -310,7 +320,7 @@ class HbCorrelator:
                 res_respairs_df = self.pairs_df.loc[res_msk, ["Donor", "Acceptor", "count", "occ"]]
                 n_res_ud = len(res_respairs_df["Donor"].unique())
                 n_res_ua = len(res_respairs_df["Acceptor"].unique())
-                print(f" {kind.capitalize()} res-res pairs, uniq donors: {n_res_ud}, uniq acceptors: {n_res_ua}", sep="\n")
+                logging.info(f"{kind.capitalize()} res-res pairs, uniq donors: {n_res_ud}, uniq acceptors: {n_res_ua}")
         
                 matrix_df = res_respairs_df.pivot(index="Donor", columns="Acceptor", values="occ").fillna(0)
                 # data heatmap:
@@ -324,14 +334,14 @@ class HbCorrelator:
                                 color=self.figs_args.data_map_color,
                                 )
             else:
-                print(f" {kind.upper()}: No hb pairs of res-res kind in {self.input_fp2.name}.")
+                logging.info(f"{kind.upper()}: No hb pairs of res-res kind in {self.input_fp2.name}.")
 
             # now BK:
             if (~res_msk).any():
                 bk_respairs_df = self.pairs_df.loc[~res_msk, ["Donor", "Acceptor", "count", "occ"]]
                 n_bk_ud = len(bk_respairs_df["Donor"].unique())
                 n_bk_ua = len(bk_respairs_df["Acceptor"].unique())
-                print(f" {kind.capitalize()} res-bk pairs: uniq donors: {n_bk_ud} uniq acceptors: {n_bk_ua}", sep="\n")
+                logging.info(f"{kind.capitalize()} res-bk pairs: uniq donors: {n_bk_ud} uniq acceptors: {n_bk_ua}")
 
                 matrix_df = bk_respairs_df.pivot(index="Donor", columns="Acceptor", values="occ").fillna(0)
                 # data heatmap:
@@ -345,7 +355,7 @@ class HbCorrelator:
                                 color=self.figs_args.data_map_color,
                                 )
             else:
-                print(f" {kind.upper()}: No pairs of res-bk kind in {self.input_fp2.name}.")
+                logging.info(f"{kind.upper()}: No pairs of res-bk kind in {self.input_fp2.name}.")
             return res_respairs_df, bk_respairs_df
 
         return
@@ -353,7 +363,7 @@ class HbCorrelator:
     def process_pairs(self):
         """Uses pandas for correlations.
         """
-        print(f"\n OK to process pairs? {self.ok}")
+        logging.info(f"OK to process pairs? {self.ok}")
         if not self.ok:
             return
 
@@ -361,7 +371,7 @@ class HbCorrelator:
         if not self.ok:
             return
 
-        # data viz:
+        # splitting done by data viz function:
         split_dfs = self.get_data_heatmaps()
         if split_dfs is not None:
             res_respairs_df, bk_respairs_df = split_dfs
@@ -369,11 +379,12 @@ class HbCorrelator:
         if not self.split_bk:  # self.pairs_df is filtered, or split_BK was false
             # data heatmap:
             matrix_df = self.pairs_df.pivot(index="Donor", columns="Acceptor", values="occ").fillna(0)
+
             # Get donors and Acceptors correlation:
             # Transpose and compute Donor (row) correlation
             row_corr_mat = matrix_df.T.corr()
             if row_corr_mat.shape[0] < 2:
-                print("Not enough rows for correlation.")
+                logging.info("Not enough rows for correlation.")
             else:
                 title = "H-bond Donors correlation"
                 png_fp = self.input_fp2.with_name(f"{self.input_fp2.stem}_filtered_corr_donors.png")
@@ -389,7 +400,7 @@ class HbCorrelator:
             # Compute Acceptor (col) correlation
             col_corr_mat = matrix_df.corr()
             if col_corr_mat.shape[0] < 2:
-                print(" Not enough columns for correlation.")
+                logging.info("Not enough columns for correlation.")
             else:
                 title = "H-bond Acceptors correlation"
                 png_fp = self.input_fp2.with_name(f"{self.input_fp2.stem}_filtered_corr_acceptors.png")
@@ -403,20 +414,17 @@ class HbCorrelator:
                                 )
         else:
             # split non-BK, then BK:
-            # res_msk = self.pairs_df["with_bk"].eq(False)
-            # if res_msk.any():
-            #     res_respairs_df =  self.pairs_df.loc[res_msk, ["Donor", "Acceptor", "count", "occ"]]
             if res_respairs_df is not None:
                 n_ud = len(res_respairs_df["Donor"].unique())
                 n_ua = len(res_respairs_df["Acceptor"].unique())
-                print(f" Non BK respairs, uniq donors: {n_ud}, uniq acceptors: {n_ua}", sep="\n")
+                logging.info(f"Non BK respairs, uniq donors: {n_ud}, uniq acceptors: {n_ua}")
                 # data heatmap:
                 matrix_df = res_respairs_df.pivot(index="Donor", columns="Acceptor", values="occ").fillna(0)
 
                 # get the 2 kinds or corr:
                 row_corr_mat = matrix_df.T.corr()
                 if row_corr_mat.shape[0] < 2:
-                    print(" Not enough rows for correlation.")
+                    logging.info("Not enough rows for correlation.")
                 else:
                     title = "H-bond Donors correlation, res-res"
                     png_fp = self.input_fp2.with_name(f"{self.input_fp2.stem}_corr_donors_res.png")
@@ -431,7 +439,7 @@ class HbCorrelator:
                 
                 col_corr_mat = matrix_df.corr()
                 if col_corr_mat.shape[0] < 2:
-                    print("Not enough columns for correlation.")
+                    logging.info("Not enough columns for correlation.")
                 else:
                     title = "H-bond Acceptors correlation, res-res"
                     png_fp = self.input_fp2.with_name(f"{self.input_fp2.stem}_corr_acceptors_res.png")
@@ -444,7 +452,7 @@ class HbCorrelator:
                                     color=self.figs_args.data_map_color,
                                     )
             else:
-                print("No hb pairs of residue-residue kind.")
+                logging.info("No hb pairs of residue-residue kind.")
 
             # now BK:
             # if (~res_msk).any():
@@ -452,13 +460,13 @@ class HbCorrelator:
             if bk_respairs_df is not None:
                 n_bk_ud = len(bk_respairs_df["Donor"].unique())
                 n_bk_ua = len(bk_respairs_df["Acceptor"].unique())
-                print(f" BK respairs, uniq donors: {n_bk_ud} uniq acceptors: {n_bk_ua}", sep="\n")
+                logging.info(f"BK respairs, uniq donors: {n_bk_ud} uniq acceptors: {n_bk_ua}")
                 # data heatmap:
                 matrix_df = bk_respairs_df.pivot(index="Donor", columns="Acceptor", values="occ").fillna(0)
                 # get the 2 kinds or corr:
                 row_corr_mat = matrix_df.T.corr()
                 if row_corr_mat.shape[0] < 2:
-                    print(" Not enough rows for correlation.")
+                    logging.info("Not enough rows for correlation.")
                 else:
                     title = "H-bond Donors correlation, res-bk"
                     png_fp = self.input_fp2.with_name(f"{self.input_fp2.stem}_corr_donors_bk.png")
@@ -473,7 +481,7 @@ class HbCorrelator:
                 
                 col_corr_mat = matrix_df.corr()
                 if col_corr_mat.shape[0] < 2:
-                    print(" Not enough cols for correlation.")
+                    logging.info("Not enough cols for correlation.")
                 else:
                     title = "H-bond Acceptors correlation, res-bk"
                     png_fp = self.input_fp2.with_name(f"{self.input_fp2.stem}_corr_acceptors_bk.png")
@@ -486,9 +494,9 @@ class HbCorrelator:
                                     color=self.figs_args.data_map_color,
                                     )
             else:
-                print(" No hb pairs of residue-backbone kind.")
+                logging.info("No hb pairs of residue-backbone kind.")
 
-        print(" Processing of pairs correlation over.\n")
+        logging.info("Processing of pairs correlation over.\n")
 
         return
 
@@ -499,13 +507,13 @@ class HbCorrelator:
         Get the df dimension and conversion dicts.
         Input df maybe a split df (res_df, bk_df).
 
-        Sets: n_rows, n_cols, res2mat_ix, mat_ix2res
+        Sets these class attributes: n_rows, n_cols, res2mat_ix, mat_ix2res
         """
         if not self.ok:
             return 
         
         if self.hb_kind != "states":
-            print("ERROR: get_dims_dicts applies to 'states'")
+            logging.info("ERROR: get_dims_dicts applies to 'states'")
             self.ok = False
             return
         
@@ -522,7 +530,7 @@ class HbCorrelator:
                                 }
             # dict to rename the corr matrix rows & columns:
             self.mat_ix2res = {v:k for k, v in self.res2mat_ix.items()}
-            print(f" States DA matrices shape: {self.n_rows}, {self.n_cols}")
+            # logging.info(f"States DA matrices shape: {self.n_rows}, {self.n_cols}")
 
         else:  # corr of pairs
             # Create a MultiIndex from the target columns
@@ -535,7 +543,7 @@ class HbCorrelator:
             # dict to rename the corr matrix rows & columns:
             # transform tuple to str: ('H_A12', 'V_A34') -> 'H_A12|V_A34'
             self.mat_ix2res = {v: f"{k[0]}|{k[1]}" for k, v in self.res2mat_ix.items()}
-            print(f" States matrices columns: {self.n_cols}")
+            # logging.info(f"States matrices columns: {self.n_cols}")
   
         return
 
@@ -577,7 +585,7 @@ class HbCorrelator:
         dfs = pd.read_csv(self.input_fp1, comment="#")
         self.n_matrices = dfs.shape[0]
         if not self.n_matrices:
-            print(" The hb states file is empty.")
+            logging.info("The hb states file is empty.")
             self.ok = False
             return
 
@@ -585,10 +593,10 @@ class HbCorrelator:
         dfs = dfs.loc[occ_msk].reindex()
         self.n_matrices = dfs.shape[0]
         if not self.n_matrices:
-            print(f" There are no occupied hb microstates at {self.min_occ_print}.")
+            logging.info(f"There are no occupied hb microstates @ {self.min_occ_print}.")
             self.ok = False
             return
-        print(f" Number of occupied states matrices: {self.n_matrices:,}.")
+        logging.info(f"Number of occupied states matrices: {self.n_matrices:,}.")
 
         # Initialize an empty binary file on disk to hold the stacked matrices
         if self.corr_kind == "da":
@@ -604,7 +612,7 @@ class HbCorrelator:
             for i in range(self.n_matrices):
                 data_file[i] = self._hb_ms2matrix(dfs.loc[i], np.zeros((self.n_cols)))
 
-        print(" Stored matrix shape:", data_file.shape)
+        logging.info(f"Stored matrix shape: {data_file.shape}")
         # Flush changes to disk and clean up the write reference
         data_file.flush()
         del data_file
@@ -617,7 +625,7 @@ class HbCorrelator:
         Worker function to process a single row index.
         """
         if self.corr_kind == "pairs":
-            print("ERROR: _process_row_chunk called when self.corr_kind == 'pairs'")
+            logging.info("ERROR: _process_row_chunk called when self.corr_kind == 'pairs'")
             self.ok = False
             return r, 0
         
@@ -650,7 +658,7 @@ class HbCorrelator:
         if not self.ok:
             return 
 
-        print(f" Starting parallel processing for {self.corr_wise}-wise correlation...")
+        logging.info(f"Starting parallel processing for {self.corr_wise}-wise correlation...")
         # Initialize a disk-backed memmap to collect the results from workers
         X_centered = np.memmap(centered_specs["centered_fp"],
                                shape=centered_specs["kind_shape"],
@@ -682,11 +690,11 @@ class HbCorrelator:
         if np.any(zero_std_mask):
             n_std0 = np.sum(zero_std_mask)
             if n_std0 == self.n_rows:
-                print(" All matrix elements are constant (have 0 std dev). No correlation possible.")
+                logging.info("All matrix elements are constant (have 0 stdev). No correlation possible.")
                 self.corr_matrix = None
                 return
-            print(f" Warning: Found {n_std0} constant features with a standard deviation of 0.")
-            # Replace 0 with 1 temporarily to avoid a division by zero error.
+            logging.info(f"Warning: Found {n_std0} constant features with a standard deviation of 0.")
+            # Replace 0 with sentinel temporarily to avoid a division by zero error.
             # No NaN propagation across the rest of the array.
             std_devs[zero_std_mask] = -999.0
 
@@ -694,12 +702,12 @@ class HbCorrelator:
         self.corr_matrix = covariance / np.outer(std_devs, std_devs)
 
         # POST-CORRECTION CLEANUP: If a feature had a standard deviation of 0, its correlation with everything 
-        # (including itself) is mathematically undefined. We explicitly set those rows/columns to 0.
+        # (including itself) is mathematically undefined. We explicitly set those rows/columns to 1.
         if np.any(zero_std_mask):
-            print(" Setting undefined values for constant features in the final correlation matrix to 1")
+            logging.info(" Setting undefined values for constant features in the final correlation matrix to 1")
             self.corr_matrix[zero_std_mask, :] = 1.
             self.corr_matrix[:, zero_std_mask] = 1.
-        print(f" Obtained {self.corr_wise.capitalize()}-wise correlation matrix, shape:", self.corr_matrix.shape)
+        logging.info(f"Obtained {self.corr_wise.capitalize()}-wise correlation matrix, shape: {self.corr_matrix.shape}")
 
         return
 
@@ -733,7 +741,7 @@ class HbCorrelator:
         """
         df = self._get_states_corr_mat_df()
         if df is None:
-            print(" There is no correlation matrix to load.")
+            logging.info("There is no correlation matrix to load.")
             return
 
         heatmap_from_df(df,
@@ -744,10 +752,10 @@ class HbCorrelator:
                         )
         return
 
-    def get_states_hdr_info(self) -> str:
-        if not self.states_hdr:
+    def get_hdr_info(self) -> str:
+        if not self.file_hdr:
             return ""
-        info = re_split("represents ", self.states_hdr)[1]
+        info = re_split("represents ", self.file_hdr)[1]
         matches = findall(r"\(([\d,]+)\D+([\d,]+)\)", info)
         num1 = matches[0][0].replace(",","")
         num2 = matches[0][1].replace(",","")
@@ -756,7 +764,7 @@ class HbCorrelator:
 
         return f"({self.n_matrices:,} occupied states, {info})"
 
-    def get_run_specs(self) -> dict:
+    def  get_fig_specs(self) -> dict:
         """
         Get the figure parameters according to user's options.
         """
@@ -772,7 +780,7 @@ class HbCorrelator:
         corr_wise = self.corr_wise
 
         if corr_kind == "pairs":
-            hdr = self.get_states_hdr_info()
+            hdr = self.get_hdr_info()
             fig_size = self.figs_args.figsize_corr
             if not self.split_bk:
                 fig_fp = self.input_fp1.with_name(f"{self.input_fp1.stem}_corr.png")
@@ -825,7 +833,7 @@ class HbCorrelator:
                  "fig_size": fig_size,
                 }
 
-    def run_pipeline(self, df: pd.DataFrame, centered_specs: dict, runspecs: dict):
+    def run_pipeline(self, centered_specs: dict, runspecs: dict):
         if not self.ok:
             return
 
@@ -844,10 +852,10 @@ class HbCorrelator:
         Process hb states data using parallelism.
         """
         if self.hb_kind == "pairs":
-            print("ERROR: process_states should not be called when hb_kind is 'pairs'")
+            logging.info("ERROR: process_states should not be called when hb_kind is 'pairs'")
             self.ok = False
 
-        print(f"\n OK to process states? {self.ok}")
+        logging.info(f"OK to process states? {self.ok}")
         if not self.ok:
             return
 
@@ -871,8 +879,9 @@ class HbCorrelator:
 
         centered_specs: dict = None
         if not self.split_bk:
-            self.get_dims_dicts(self.pairs_df)
             self.corr_kind = "pairs"
+            self.split_kind = ""
+            self.get_dims_dicts(self.pairs_df)
             # create main binary mat using dims & self.corr_kind:
             self.save_hb_microstates_matrices()
             if not self.ok:
@@ -883,9 +892,8 @@ class HbCorrelator:
                     "centered_fp": self.dat_fps["ms_matrices_cols"],
                     "kind_shape": (self.n_cols, self.n_matrices),
                     }
-            self.split_kind = ""
-            runspecs = self.get_run_specs()
-            self.run_pipeline(self.pairs_df, centered_specs, runspecs)
+            runspecs = self.get_fig_specs()
+            self.run_pipeline(centered_specs, runspecs)
 
             if self.include_states_da_corr:
                 self.corr_kind = "da"
@@ -901,8 +909,8 @@ class HbCorrelator:
                     "centered_fp": self.dat_fps["ms_matrices_rows"],
                     "kind_shape": (self.n_rows, self.n_matrices * self.n_rows),
                     }
-                runspecs = self.get_run_specs()
-                self.run_pipeline(self.pairs_df, centered_specs, runspecs)
+                runspecs = self.get_fig_specs()
+                self.run_pipeline(centered_specs, runspecs)
 
                 # acceptors:
                 self.corr_wise = "col"
@@ -912,12 +920,13 @@ class HbCorrelator:
                     "centered_fp": self.dat_fps["ms_matrices_cols"],
                     "kind_shape": (self.n_cols, self.n_matrices * self.n_cols),
                     }
-                runspecs = self.get_run_specs()
-                self.run_pipeline(self.pairs_df, centered_specs, runspecs)
+                runspecs = self.get_fig_specs()
+                self.run_pipeline(centered_specs, runspecs)
         else:
             if res_pairs_df is not None:
                 self.get_dims_dicts(res_pairs_df)
                 self.corr_kind = "pairs"
+                self.split_kind = "res"
                 self.save_hb_microstates_matrices()
                 if not self.ok:
                     return
@@ -927,9 +936,8 @@ class HbCorrelator:
                     "centered_fp": self.dat_fps["ms_matrices_cols"],
                     "kind_shape": (self.n_cols, self.n_matrices),
                     }
-                self.split_kind = "res"
-                runspecs = self.get_run_specs()
-                self.run_pipeline(res_pairs_df, centered_specs, runspecs)
+                runspecs = self.get_fig_specs()
+                self.run_pipeline(centered_specs, runspecs)
 
                 if self.include_states_da_corr:
                     self.corr_kind = "da"
@@ -945,8 +953,8 @@ class HbCorrelator:
                         "centered_fp": self.dat_fps["ms_matrices_rows"],
                         "kind_shape": (self.n_rows, self.n_matrices * self.n_rows),
                         }
-                    runspecs = self.get_run_specs()
-                    self.run_pipeline(res_pairs_df, centered_specs, runspecs)
+                    runspecs = self.get_fig_specs()
+                    self.run_pipeline(centered_specs, runspecs)
                     # acceptors:
                     self.corr_wise = "col"
                     centered_specs = {
@@ -955,13 +963,13 @@ class HbCorrelator:
                         "centered_fp": self.dat_fps["ms_matrices_cols"],
                         "kind_shape": (self.n_cols, self.n_matrices * self.n_cols),
                         }
-                    runspecs = self.get_run_specs()
-                    self.run_pipeline(res_pairs_df, centered_specs, runspecs)
+                    runspecs = self.get_fig_specs()
+                    self.run_pipeline(centered_specs, runspecs)
 
             if bk_pairs_df is not None:
                 self.split_kind = "bk"
-                self.get_dims_dicts(bk_pairs_df)
                 self.corr_kind = "pairs"
+                self.get_dims_dicts(bk_pairs_df)
                 self.save_hb_microstates_matrices()
                 if not self.ok:
                     return
@@ -971,8 +979,8 @@ class HbCorrelator:
                     "centered_fp": self.dat_fps["ms_matrices_cols"],
                     "kind_shape": (self.n_cols, self.n_matrices),
                     }
-                runspecs = self.get_run_specs()
-                self.run_pipeline(bk_pairs_df, centered_specs, runspecs)
+                runspecs = self.get_fig_specs()
+                self.run_pipeline(centered_specs, runspecs)
 
                 if self.include_states_da_corr:
                     self.corr_kind = "da"
@@ -988,8 +996,8 @@ class HbCorrelator:
                         "centered_fp": self.dat_fps["ms_matrices_rows"],
                         "kind_shape": (self.n_rows, self.n_matrices * self.n_rows),
                         }
-                    runspecs = self.get_run_specs()
-                    self.run_pipeline(res_pairs_df, centered_specs, runspecs)
+                    runspecs = self. get_fig_specs()
+                    self.run_pipeline(centered_specs, runspecs)
                     # acceptors:
                     self.corr_wise = "col"
                     centered_specs = {
@@ -998,9 +1006,9 @@ class HbCorrelator:
                         "centered_fp": self.dat_fps["ms_matrices_cols"],
                         "kind_shape": (self.n_cols, self.n_matrices * self.n_cols),
                         }
-                    runspecs = self.get_run_specs()
-                    self.run_pipeline(res_pairs_df, centered_specs, runspecs)
+                    runspecs = self.get_fig_specs()
+                    self.run_pipeline(centered_specs, runspecs)
 
-        print(" Processing of states correlation over.")
+        logging.info("Processing of states correlation over.")
         return
 
