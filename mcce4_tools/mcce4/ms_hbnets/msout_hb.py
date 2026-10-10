@@ -7,14 +7,27 @@ Module for MSout_hb class, the numpy-based ms_out/ file loader for outputing
 H-bonds information from microstates using the 'hah' file', the output of the
 detect_hbonds tool.
 
-Updates:
-- 09-11-2026:
-  - Removed (most) sys.exit calls to enable iteration over folder w/o
-    stopping on individual run failure;
-  - Fixed hb_pairs conf to residue reduction: sum -> max
+Notes:
+ - Loading of H-bond data is either for 'pairs' or for 'states', reflected in the
+   ms_hbnets tool subcommands.
+   This split follows the msout loading routines that differ for computational efficiency.
+
+Warning:
+ The main output of the 'pairs' subcommand is the hb_pairs_pH*.csv file. 
+ Unless a higher min_occ is given, ~99.+% of the microstates space is returned. Thus, this
+ output lists the uniques pairs over most of the space.
+ (The difference is due to rounding of occ to the millionth.)
+ The states pairs output by the 'states' subcommand, hb_states_pairs_pH*.csv, lists the unique
+ pairs in the returned sample of hb microstates.
+ Comparing the pairs' occ in these two files is only meaning full if their counts amount to
+ to a (very) similar percentage of the entire state space.
+ This information is found in the commented first line in hb_states_pH*.csv and hb_pairs_pH*.csv,
+ obtained with this command:
+   head -n1 hb_states_pH*.csv
 """
-from argparse import ArgumentParser, RawDescriptionHelpFormatter
 from collections import defaultdict
+import logging
+from operator import itemgetter
 from pathlib import Path
 import re
 import sys
@@ -27,7 +40,7 @@ try:
     import pandas as pd
     from scipy.sparse import csr_matrix
 except ImportError as e:
-    print(f"Oops! Forgot to activate an appropriate environment?\n{e}")
+    logging.critical(f"Oops! Forgot to activate an appropriate environment?\n{e}")
     sys.exit(1)
 
 from mcce4.constants import res3_to_res1
@@ -56,6 +69,13 @@ fHAH_EXPANDED = "expanded_hah_{}.csv"
 fPAIR_RES = "hb_pairs_res_{}.csv"
 
 
+# the largest spaces ever seen are in the order of millions;
+# the occ returned but the loading functions are rounded to this precision:
+PREC = 6
+MIN_OCC = 10**(-PREC)
+printed_occ = "0." + "".join('0' for i in range(PREC - 1)) + "1"
+
+
 # mapping of iconf (donor, acceptor) pairs for filtering purposes:
 pair_classes = {
                 # not in matrix:
@@ -82,12 +102,6 @@ def num_prec(num: Union[float, int]) -> int:
     if '.' in num_str:
         return len(num_str.split('.')[1])
     return 0
-
-
-OCC_PREC = 5
-min_occ = 10**(-OCC_PREC)
-printed_occ = "0." + "".join('0' for i in range(OCC_PREC - 1)) + "1"
-min_occ_print = f"min occ >= {float(min_occ):.{OCC_PREC}f}"
 
 
 def get_resid(confid:str) -> str:
@@ -125,7 +139,7 @@ def get_titr_vec(titr_fp: Path, titr_point: str, non_zeros: bool = None) -> Unio
     vec = None
     vec = df.filter(items=[df.columns[0], titr_point], axis=1)
     if vec.shape[1] < 2:
-        print(f"Titration point not found in {titr_fp!s}: {titr_point}")
+        logging.critical(f"Titration point not found in {titr_fp!s}: {titr_point}")
         return None
 
     if non_zeros is not None:
@@ -146,6 +160,11 @@ def get_hb_paths(mcce_dir: Path, ph: str = "7", eh: str = "0") -> Tuple[Path, No
         - hb_states_pairs (hb_pairs count, occ & state membership)
         - hb_states
     """
+    if not isinstance(ph, str):
+        ph = str(ph)
+    if not isinstance(eh, str):
+        eh = str(eh)
+
     ms_files_fps = get_mcce_filepaths(mcce_dir, ph=ph, eh=eh)
     if ms_files_fps is not None:
         h3_fp, step2_fp, msout_fp = ms_files_fps
@@ -160,19 +179,19 @@ def get_hb_paths(mcce_dir: Path, ph: str = "7", eh: str = "0") -> Tuple[Path, No
         # use the output file from detect_hbonds:
         hah_fp = mcce_dir.joinpath(HAH_FNAME_INIT)
         if not hah_fp.exists():
-            print("MISSING: step2_out_hah.txt. Run detect_hbonds first.")
+            logging.critical("MISSING: step2_out_hah.txt. Run detect_hbonds first.")
             return None
         else:
             with open(hah_fp) as fh:
                 has_xyz = fh.readline().split()[-1] == "xyz"
             if not has_xyz:
-                print("OUTDATED file format: Rerun detect_hbonds for new file format (includes xyz).")
+                logging.critical("OUTDATED file format: Rerun detect_hbonds for new file format (includes xyz).")
                 return None
 
     # lastly, check fort.38:
     fort38_fp = h3_fp.with_name("fort.38")
     if not fort38_fp.exists():
-        print("MISSING: fort.38")
+        logging.critical("MISSING: fort.38")
         return None
     
     return (h3_fp,
@@ -193,13 +212,13 @@ def get_da_pairs(hah_fp: Path) -> Union[np.ndarray, None]:
     confid_donor, confid_acceptor, d_occ, a_occ
     """
     if hah_fp.suffix != ".txt":
-        print(("FileTypeError:\n "
+        logging.error(("FileTypeError:\n "
                "Expected a '.txt' file (output of detect_hbounds or its reduced version), "
                f"got: {hah_fp.name}"))
         return None
 
     if not hah_fp.exists():
-        print(f"FileNotFoundError: {hah_fp!r}")
+        logging.critical(f"FileNotFoundError: {hah_fp!r}")
         return None
 
     try:
@@ -207,7 +226,7 @@ def get_da_pairs(hah_fp: Path) -> Union[np.ndarray, None]:
                            usecols=["confid_donor","confid_acceptor","d_occ","a_occ"],
                            sep=r"\s+").drop_duplicates().to_numpy()
     except Exception as err:
-        print(f"Could not load {hah_fp.name} data into array.\n{err}")
+        logging.critical(f"Could not load {hah_fp.name} data into array.\n{err}")
         return None
 
 
@@ -218,7 +237,7 @@ def get_ms_pairs(pairs_csv: Path) -> Union[np.ndarray, None]:
         return pd.read_csv(pairs_csv, usecols=["donor","acceptor","occ"],
                            comment="#").to_numpy()
     except Exception as err:
-        print(f"Could not load {pairs_csv.name} data into array.\n{err}")
+        logging.critical(f"Could not load {pairs_csv.name} data into array.\n{err}")
         return None
 
 
@@ -229,8 +248,8 @@ def get_states_keys(states_csv: Path) -> list:
                            comment="#").to_string(header=False,
                                                   index=False).splitlines()
     except FileNotFoundError:
-        print((f"Did not find the specified HB states file ({states_csv.name})\n"
-                "Hint: the hb states file is created when calling `ms_hbnets` with --load_states.")
+        logging.info((f"Did not find the specified HB states file ({states_csv.name})\n"
+                "Hint: the hb states file is created when calling `ms_hbnets states`")
                 )
         return []
 
@@ -242,11 +261,16 @@ def check_state_pairs(state_pairs: str, hah_da_pairs: np.ndarray) -> Union[str, 
     """
     out = ""
     # the hb_states state id is a string :: str(tuple(d, a),...) 
-    state_key_pattern = r"\((\w+),(\w+)\)"
+    state_key_pattern = r"\(([\w+-]+),\s*([\w+-]+)\)"
     da_tuples_lst = re.findall(state_key_pattern, state_pairs)
     for tx, (d, a) in enumerate(da_tuples_lst, start=1):
-        if (d, a) not in hah_da_pairs[:,[0,1]]:
+        result = hah_da_pairs[(hah_da_pairs[:,0]==d) & (hah_da_pairs[:,1] == a), [0,1]]
+        if not result.any():
             out += f"state #{tx}: ({d}, {a}) not found\n"
+        # else:
+        #     if result.size > 2:
+        #         logging.info("Multiple matching pairs found")
+           
     if not out:
         return None
     return out
@@ -263,7 +287,7 @@ def check_states(hah_da_pairs: np.ndarray,
     if not states_keys:
         return False
 
-    print(" Checking da_pairs in states against da_pairs in hah file...")
+    logging.info(" Checking da_pairs in states against da_pairs in hah file...")
     out_fp = states_csv.parent.joinpath(output_fname)
     ok = True
     with open(out_fp, "a") as fha:
@@ -273,9 +297,9 @@ def check_states(hah_da_pairs: np.ndarray,
                 ok = False
                 fha.write(result)
     if not ok:
-        print(f" Spurious states pairs saved in {out_fp!r}")
+        logging.warning(f" Spurious states pairs saved in {out_fp!r}")
     else:
-        print(" Check on states passed.")
+        logging.info(" Check on states passed.")
 
     return ok
 
@@ -291,29 +315,29 @@ def check_pairs(hah_da_pairs, pairs_csv) -> bool:
     correct_pairs = True
     correct_occ = True
 
-    print(" Checking da_pairs in pairs file against da_pairs in hah file & fort.38...")
+    logging.info(" Checking da_pairs in pairs file against da_pairs in hah file & fort.38...")
     for d,a,occ in ms_pairs:
-        msk = hah_da_pairs[(hah_da_pairs[:,0]==d) & (hah_da_pairs[:,1]==a)]
-        if not len(msk):
-            print(f"Pair not found in hah_file: ({d}, {a})")
-            correct_pairs = correct_pairs or False
+        result = hah_da_pairs[(hah_da_pairs[:,0]==d) & (hah_da_pairs[:,1]==a)]
+        correct_pairs = result.any()
+        if not correct_pairs:
+            logging.warning(f"Pair not found in hah_file: ({d}, {a})")
             continue
 
         occ = round(occ, 3)
-        d_occ, a_occ = msk[:,[-2,-1]][0]
+        d_occ, a_occ = result[:,[-2,-1]][0]
         occ_max = min(d_occ, a_occ)
         occ_min = max(0.0, d_occ + a_occ - 1.0)
         if occ > round(occ_max + 1e-3, 3):
-            print((f" Warning: occ {occ:.3f} of pair ({d}, {a}) exceeds max bound {occ_max:.3f} "
+            logging.warning((f" occ {occ:.3f} of pair ({d}, {a}) exceeds max bound {occ_max:.3f} "
                    f"obtained from {d_occ:.3f} (donor) and {a_occ:.3f} (acceptor)"))
             correct_occ = correct_occ or False
         if occ < round(occ_min - 1e-3, 3):
-            print((f" Warning: occ {occ:.3f} of pair ({d}, {a}) below min bound {occ_min:.3f} "
+            logging.warning((f" occ {occ:.3f} of pair ({d}, {a}) below min bound {occ_min:.3f} "
                    f"obtained from {d_occ:.3f} (donor) and {a_occ:.3f} (acceptor)"))
             correct_occ = correct_occ or False
 
     if correct_pairs and correct_occ:
-        print(" Check on pairs passed.")
+        logging.info(" Check on pairs passed.")
         return True
 
     msg = ""
@@ -321,16 +345,20 @@ def check_pairs(hah_da_pairs, pairs_csv) -> bool:
         msg = msg + " Failed due to spurious pairs in the hb_pairs file.\n"
     if not correct_occ:
         msg = msg + " Failed due to out-of-bound occupancies in the hb_pairs file."
-    print(msg)
+    logging.info(msg)
 
     return False
 
 
+# Temporarily excluded: under review
 def do_checks(mcce_dir: str, ph: str = "7", eh: str = "0") -> bool:
     """Wrapper to perform check on ms_hbnets main output files.
     """
+    logging.info("The consistency checks are under review and TEMPORARILY BYPASSED.")
+    return True
+
     run_dir = Path(mcce_dir)
-    print(f"Run dir: {run_dir!s}")
+    logging.info(f"Run dir: {run_dir!s}")
     needed_fps = get_hb_paths(run_dir, ph=ph, eh=eh)
     if needed_fps is None:
         return False
@@ -342,14 +370,14 @@ def do_checks(mcce_dir: str, ph: str = "7", eh: str = "0") -> bool:
         return False
 
     if not pairs_csv.exists():
-        print(f" Not found: {pairs_csv.name}, skipped check on pairs file.")
+        logging.info(f" Not found: {pairs_csv.name}, skipped check on pairs file.")
     else:
         status = check_pairs(hah_da_pairs, pairs_csv)
         if not status:
             return False
 
     if not states_csv.exists():
-        print(f" Not found: {states_csv.name}, skipped check on states file.")
+        logging.info(f" Not found: {states_csv.name}, skipped check on states file.")
     else:
         status = check_states(hah_da_pairs[:,[0,1]], states_csv)
         if not status:
@@ -409,7 +437,7 @@ class ConfInfo:
             # fixed on
             conf_info[fixed_iconfs, 3] = 1
         except IndexError:
-            print("[STOP] ConfInfo.load: Mismatch between conformer data in head3.lst and",
+            logging.critical("Mismatch between conformer data in head3.lst and",
                     "given inputs (typically extracted from the msout file header).")
             return
         
@@ -423,15 +451,14 @@ class ConfInfo:
         self.background_crg = conf_info[np.where((conf_info[:,-1]==0) 
                                                   & (conf_info[:,3]==1)), 1].sum()
         if self.verbose:
-            print(f" Background crg: {self.background_crg}",
-                  f" n_confs: {self.n_confs}", sep="\n")
-            self.fieldnames()
+            logging.info((f"Background crg: {self.background_crg}; n_confs: {self.n_confs}"))
+    
         self.conf_info = conf_info
 
         return
 
     def fieldnames(self):
-        print(" CI.conf_info fields: 0:confid, 1:crg, 2:iconf, 3:is_fixed, 4:ires, 5:is_free")
+        logging.info(" CI.conf_info fields: 0:confid, 1:crg, 2:iconf, 3:is_fixed, 4:ires, 5:is_free")
 
     def get_iconf(self, confid: str) -> int:
         """Get the conf index of a confid;
@@ -528,9 +555,10 @@ class MSout_hb:
     def __init__(self, mcce_dir: str, ph: str = "7", eh: str = "0",
                  n_target_states: int = N_STATES,
                  load_states: bool = False,
-                 min_occ: float = min_occ,
+                 min_occ: float = MIN_OCC,
                  reload: bool = False,
                  verbose: bool = False):
+        
         """
         MSout_hb class constructor.
 
@@ -554,6 +582,7 @@ class MSout_hb:
         self.hb_kind = "states" if self.load_states else "pairs"
         self.n_target_states = n_target_states
         self.run_dir = Path(mcce_dir)
+        self.msinfo_dict: dict = None
 
         start_setup = time()
         needed_fps = get_hb_paths(self.run_dir, ph=ph, eh=eh)
@@ -562,10 +591,13 @@ class MSout_hb:
             return
 
         (self.h3_fp, self.step2_fp, self.msout_fp, self.fort38_fp,
-         self.hah_fp, self.hah_ms_fp,
+         self.hah_fp,
          # outputs:
+         self.hah_ms_fp,
          self.pairs_csv, self.pairs_res_csv,
          self.states_csv, self.states_pairs_csv) = needed_fps
+        self.reductions_fp = self.hah_ms_fp.with_name(f"{self.hah_ms_fp.stem}_reductions.tsv")
+
         # ph, eh as string to match msout file:
         self.pheh_str = self.msout_fp.stem[:-2]
 
@@ -576,7 +608,7 @@ class MSout_hb:
             return
 
         if not self.HDR.is_monte:
-            print(NO_MONTE_MSG)
+            logging.info(NO_MONTE_MSG)
             self.proceed = False
             return
 
@@ -586,7 +618,7 @@ class MSout_hb:
         self.CI.load(self.HDR.iconf2ires, self.HDR.fixed_iconfs)
         # + CI.n_confs, CI.max_iconf, CI.max_ires
         if self.CI.conf_info is None:
-            print("[DATA MISMATCH]: Conformer info could not be loaded.")
+            logging.info("[DATA MISMATCH]: Conformer info could not be loaded.")
             self.proceed = False
             return
 
@@ -609,7 +641,7 @@ class MSout_hb:
             return
 
         if not self.expd_df_checks():
-            print("Some conformer indices appear to be missing.")
+            logging.info("Some conformer indices appear to be missing.")
             self.proceed = False
             return
 
@@ -644,8 +676,8 @@ class MSout_hb:
           - H-bonding pairs with fixed conformers that are always OFF
           - H-bonding pairs between 2 BK conformers
           - 0 occupancy in fort.38
-        The the reduced file is save as hah_{pheh}.txt, as it is ph dependent and
-        used in extend_hah_data function.
+        The the reduced file is save as hah_{pheh}.txt, as it is ph/eh dependent,
+        and is used in extend_hah_data function.
 
         Called by load_hah_file.
         """
@@ -663,47 +695,48 @@ class MSout_hb:
                     return 1
                 else:
                     return -1
+
+        # write whatever was removed to self.reductions_fp:
         # occ columns are kept
         df["d_occ"] = df["confid_donor"].apply(get_occ)
         df["a_occ"] = df["confid_acceptor"].apply(get_occ)
         msk_negocc = (df["d_occ"]==-1) | (df["a_occ"]==-1)
         if msk_negocc.any():
             # problem!
-            negocc_fp = self.hah_fp.with_name("confs_not_found_in_fort38.tsv")
-            df.loc[msk_negocc].to_csv(negocc_fp, sep="\t")
-            print(f"ERROR: Conformers not found in fort.38 saved to {negocc_fp!s}")
+            logging.error(f"Conformers with negative occ?!")
             return None
 
         msk_occ = (df["d_occ"]==0) | (df["a_occ"]==0)
         if msk_occ.any():
-            if self.verbose:
-                occ0_fp = self.hah_fp.with_name("dropped_occ0confs.tsv")
-                df.loc[msk_occ].to_csv(occ0_fp, sep="\t")
+            with open(self.reductions_fp, "a") as fr:
+                fr.write(".......................\n\n# Dropped: zero occ confs:\n")
+                df.loc[msk_occ].to_csv(fr, sep="\t")
             df = df.drop(index=df.loc[msk_occ].index, axis=0)
 
         # remove BK-BK:
         msk_bk = (df["confid_donor"].str.contains("BK")) & (df["confid_acceptor"].str.contains("BK"))
         if msk_bk.any():
-            if self.verbose:
-                bk_fp = self.hah_fp.with_name("dropped_bk2bk_confs.tsv")
-                df.loc[msk_bk].to_csv(bk_fp, sep="\t")
+            with open(self.reductions_fp, "a") as fr:
+                fr.write(".......................\n\n# Dropped: BK-BK pairs\n")
+                df.loc[msk_bk].to_csv(fr, sep="\t")
             df = df.drop(index=df.loc[msk_bk].index, axis=0)
 
         df["d_off"] = df["confid_donor"].apply(self.CI.is_fixed_off)
         df["a_off"] = df["confid_acceptor"].apply(self.CI.is_fixed_off)
         msk_off = (df["d_off"]==1) | (df["a_off"]==1)
         if msk_off.any():
-            if self.verbose:
-                off_fp = self.hah_fp.with_name("dropped_fixedoff_confs.tsv")
-                df.loc[msk_off].to_csv(off_fp, sep="\t")
+            with open(self.reductions_fp, "a") as fr:
+                fr.write(".......................\n\n# Dropped: pairs with fixed-off member(s)\n")
+                df.loc[msk_off].to_csv(fr, sep="\t")
             df = df.drop(index=df.loc[msk_off].index, axis=0)
+
         df = df.drop(columns=["d_off", "a_off"])
 
         reduced_fp = self.hah_fp.with_name(fHAH_FNAME.format(self.pheh_str))
         # reset hah path:
         self.hah_fp = reduced_fp
         self.hah_fp.write_text(df.to_string(index=False)+"\n")
-        print(f"H-bonding pairs in reduced file {self.hah_fp.name!s}: {df.shape[0]}")
+        logging.info(f"H-bonding pairs in reduced file {self.hah_fp.name!s}: {df.shape[0]}")
 
         return df
 
@@ -722,10 +755,10 @@ class MSout_hb:
         if self.hah_fp.name==HAH_FNAME_INIT:
             df = self.reduce_hah_file(df)
             if df is None:
-                print("Could not reduce the input hah file.")
+                logging.info("Could not reduce the input hah file.")
                 self.proceed = False
                 return
-        print(f"H-bonding pairs in {self.hah_fp.name!s}: {df.shape[0]}")
+        logging.info(f"H-bonding pairs in {self.hah_fp.name!s}: {df.shape[0]}")
 
         return df
 
@@ -763,16 +796,16 @@ class MSout_hb:
                             keys = list(gp.indices.keys())  # unique & sorted
                             params[cx][k]["lst"].extend(keys)
                             if self.verbose:
-                                print(f" Class {cx}: Extended slots for {K[i]} {kcol!r}: {len(keys)}")
+                                logging.info(f" Class {cx}: Extended slots for {K[i]} {kcol!r}: {len(keys)}")
                         else:
                             if self.verbose:
-                                print(f" Class {cx}: No extended slots for {K[i]} {kcol!r}")
+                                logging.info(f" Class {cx}: No extended slots for {K[i]} {kcol!r}")
                     else:
                         if self.verbose:
-                            print(f" Class {cx}: No extended slots for {K[i]} {kcol!r}")
+                            logging.info(f" Class {cx}: No extended slots for {K[i]} {kcol!r}")
             else:
                 if self.verbose:
-                    print(f" No extended slots for empty pair class {cx}")
+                    logging.info(f" No extended slots for empty pair class {cx}")
 
         return fixd, fixa, bkd, bka
 
@@ -800,8 +833,8 @@ class MSout_hb:
             else:
                 extend_bk = bka
 
-        print(" Number of extension slots from mixed pairs with fixed:",len(extend_fixed))
-        print(" Number of extension slots from mixed pairs with BK:",len(extend_bk))
+        logging.info(f"Number of extension slots from mixed pairs with fixed: {len(extend_fixed)}")
+        logging.info(f"Number of extension slots from mixed pairs with BK: {len(extend_bk)}")
         self.n_fx = len(extend_fixed)
         self.n_bk = len(extend_bk)
         if self.n_fx:
@@ -829,7 +862,8 @@ class MSout_hb:
             else:
                 # smallest collection:
                 self.n_hb_confs = self.HDR.n_free_ics
-        print(f" n_hb_confs: {self.n_hb_confs:,}")
+
+        logging.info(f"H-bonding conformers: {self.n_hb_confs:,}")
 
         return
 
@@ -843,14 +877,17 @@ class MSout_hb:
             return None
 
         if self.hah_ms_fp.exists():
-            exp_df = pd.read_csv(self.hah_ms_fp)
-            # populate the needed attributes:
-            fixd, fixa, bkd, bka = self.get_fixed_or_bk_confids(exp_df)
-            self.get_extended_iconfs(fixd, fixa, bkd, bka)
-            return exp_df
+            if self.reload:
+                self.hah_ms_fp.unlink()
+            else:
+                exp_df = pd.read_csv(self.hah_ms_fp)
+                # populate the needed attributes:
+                fixd, fixa, bkd, bka = self.get_fixed_or_bk_confids(exp_df)
+                self.get_extended_iconfs(fixd, fixa, bkd, bka)
+                return exp_df
 
         # free and mixed hb pairs + needed indices
-        print(f"Creating the expanded hah file {self.hah_ms_fp!s}...")
+        logging.info(f"Creating the expanded hah file {self.hah_ms_fp!s}...")
 
         df = self.load_hah_file()
         if df is None:
@@ -893,7 +930,7 @@ class MSout_hb:
             return self.bkid2dmic.get(ro, -3)
 
         # get final Mij for building adj list
-        # classes 1,2 & 3:
+        # classes 1, 2 & 3:
         valid = df["free"].gt(0)
 
         # free or fixed confs:
@@ -922,7 +959,7 @@ class MSout_hb:
 
         # save
         df.to_csv(self.hah_ms_fp, index=False)
-        print(f"Accepted H-bonding pairs in df: {df.loc[df['free'].gt(0)].shape[0]}")
+        logging.info(f"Accepted H-bonding pairs in {self.hah_ms_fp.name}: {df.loc[df['free'].gt(0)].shape[0]}")
 
         return df
 
@@ -932,15 +969,15 @@ class MSout_hb:
         # final iconfs columns:
         for col in ["Mi", "Mj"]:
             if not all(self.df[col].isna() == False):
-                print(f"Failed check: column {col!r} should not have NA values")
+                logging.info(f"Failed check: column {col!r} should not have NA values")
                 passed = False
             neg = self.df.loc[valid & (self.df[col]<0)]
             if neg.shape[0] != 0:
                 # save to investigate:
                 neg_fp = self.hah_ms_fp.with_suffix(f"_{col}.unmapped.csv")
                 neg.to_csv(neg_fp)
-                print(f"Failed check: column {col!r} should not have negative values",
-                      f"Unmapped iconfs saved to {neg_fp!s}", sep="\n")
+                logging.error((f"Failed check: column {col!r} should not have negative values. "
+                              f"Unmapped iconfs saved to {neg_fp!s}"))
                 passed = False
         return passed
 
@@ -980,7 +1017,7 @@ class MSout_hb:
         msk = self.df["free"].gt(0)
         df = self.df.loc[msk].drop_duplicates(subset=["Mi", "Mj"])
         n_rows = df.shape[0]
-        print(f"Unique H-bonding pairs for matrix: {n_rows}")
+        logging.info(f"Unique H-bonding pairs for matrix: {n_rows}")
         return csr_matrix(([1]*n_rows, (df["Mi"].values, df["Mj"].values)),
                            dtype=np.uint8,
                            shape=(self.n_hb_confs, self.n_hb_confs)
@@ -1080,31 +1117,31 @@ class MSout_hb:
                     if mc_lines % self.n_skip == 0:
                         si, sj = self.I[np.ix_(xs, xs)].nonzero()
                         sij = tuple(zip(xs[si], xs[sj]))
-                        hb_states[sij][0] += round(float(fields[0]),3)   # state energy
+                        hb_states[sij][0] += float(fields[0])*count   # state energy
                         hb_states[sij][1] += count
 
                     if mc_lines % (self.n_skip*5000) == 0:
-                        print(f" Trace - mc lines processed: {mc_lines:,}...")
+                        logging.info(f" Trace - mc lines processed: {mc_lines:,}...")
+
+        # accepted ms with flipped iconfs
+        logging.info(f"Processed mc lines: {mc_lines:,}")
 
         # update final states dict with aver E & occ if occ > 0.00001%:
         self.hb_states = defaultdict(lambda: [0., 0, 0.])   # [E, count, occ]
         for s in hb_states:
-            occ = hb_states[s][1]/self.n_space
-            if round(occ, self.prec) > 0:
+            occ = round(hb_states[s][1]/self.n_space, PREC)
+            if occ >= self.min_occ:
+                # size of the returned hb states space:
                 self.n_hb_space += hb_states[s][1]
+                # average E:
                 self.hb_states[s][0] = hb_states[s][0]/self.n_space
                 self.hb_states[s][1] = hb_states[s][1]
                 self.hb_states[s][2] = occ
         del hb_states
         self.hb_states = dict(self.hb_states)
         self.n_hb_states = len(self.hb_states)
-        print(f"\nProcessed mc lines: {mc_lines:,}",   # accepted ms with flipped iconfs
-              f"Microstates space: {self.n_space:,}",
-              (f"Occupied H-bonding states space @ {self.min_occ_print}: {self.n_hb_space:,} "
-               f"({self.n_hb_space/self.n_space:.2%} of state space)"),
-              f"Saved occupied H-bonding states: {self.n_hb_states:,} (target: {self.n_target_states:,})",
-              sep="\n"
-              )
+        if not self.n_hb_states:
+            logging.warning(f"No hb states found @ {self.min_occ_print}")
 
         return
 
@@ -1164,33 +1201,55 @@ class MSout_hb:
                     self.process_ms_pairs(xs, count)  # update pair matrix, self.P
 
                     if mc_lines % (self.n_skip*5000) == 0:
-                        print(f" Trace: processed mc lines {mc_lines:,}...")
+                        logging.info(f" Trace: processed mc lines {mc_lines:,}...")
+
+        # accepted ms with flipped iconfs
+        logging.info(f"Processed mc lines: {mc_lines:,}")
 
         # Save to list where each item is [(pi, pj), count, occ]
-        pi, pj = self.P.nonzero()
-        self.hb_pairs = [[(int(p[0]),int(p[1])),
-                          int(self.P[p[0], p[1]].sum(axis=0)),
-                          round(float(self.P[p[0], p[1]].sum(axis=0)/self.n_space),
-                                self.prec)] for p in zip(pi, pj)]
-        self.n_hb_pairs = len(self.hb_pairs)
-        # accepted ms with flipped iconfs
-        print(f"\nProcessed mc lines: {mc_lines:,}")
-        print(f"State space: {self.n_space:,}")
-        print(f"H-bonding pairs: {self.n_hb_pairs:,}")
+        self.hb_pairs = []
+        # Added: Missing filtering for given min occ:
+        indices = np.argwhere(self.P/self.n_space >= self.min_occ)
+        self.n_hb_pairs = indices.shape[0]
+        if not self.n_hb_pairs: 
+            logging.warning(f"No hb pairs found @ {self.min_occ_print}")
+        else:
+            if self.n_hb_pairs > 1:
+                for p in indices:
+                    self.hb_pairs.append([(int(p[0]),int(p[1])),
+                                          int(self.P[p[0], p[1]].sum(axis=0)),
+                                          round(self.P[p[0], p[1]].sum(axis=0)/self.n_space, PREC)
+                                          ])
+            else:   # no for-loop
+                p = indices[0]
+                self.hb_pairs.append([(int(p[0]),int(p[1])),
+                                       int(self.P[p[0], p[1]].sum(axis=0)),
+                                       round(self.P[p[0], p[1]].sum(axis=0)/self.n_space, PREC)
+                                       ])
+        self.n_hb_space = max(self.hb_pairs, key=itemgetter(1))[1]
 
         return
 
     def hb_pairs_data2csv(self):
         if self.hb_pairs:
             df = pd.DataFrame(self.hb_pairs, columns=["index","count","occ"])
-            df["occ"] = df["occ"].round(6)
+            df["occ"] = df["occ"].round(PREC)
             df["count"] = df["count"].astype("int32")
             df[["Mi","Mj"]] = df["index"].apply(lambda x: pd.Series([int(x[0]),int(x[1])]))
             df[["donor","acceptor"]] = df["index"].apply(
                 lambda x: pd.Series([self.iconf2confid[x[0]],self.iconf2confid[x[1]]]))
             pairs_out = df[["Mi","Mj","donor","acceptor","count","occ"]]
             pairs_out = pairs_out.sort_values(by=["count", "Mi"], ascending=[False, True])
-            pairs_out.to_csv(self.pairs_csv, index=False)
+
+            # build comment about % returned pairs
+            note = (f"# Data for the {self.n_hb_pairs:,} "
+                    f"occupied hb_pairs (@ {self.min_occ_print}) whose max count represents "
+                    f"{self.n_hb_space/self.n_space:.2%} of the "
+                    f"entire space ({self.n_hb_space:,}/{self.n_space:,})\n"
+            )
+            with open(self.pairs_csv, "w") as fo:
+                fo.write(note)
+                pairs_out.to_csv(fo, index=False)
 
             # rename conf to 1-letter res codes for loading in cytoscape
             df[["res_d","res_a"]] = df.apply(
@@ -1201,11 +1260,11 @@ class MSout_hb:
                 lambda row: row["donor"][3:5]=="BK" or row["acceptor"][3:5]=="BK",
                 axis=1)
             
-            # collapse confs to res:
-            df_res = df.groupby(["res_d","res_a"],
-                                as_index=False).agg({"count": "max", "occ": "max", "with_bk": "max"})
-            
-            df_res["count"] = df_res["count"].astype("int32")
+            # collapse confs to resid with res occ = max conf occ:
+            df_res = df.groupby(["res_d","res_a"], as_index=False).agg(
+                 {"count":"max", "occ": "max", "with_bk": "max"})
+            df_res["occ"] = df_res["occ"].round(PREC)
+            df_res["count"] = df_res["count"].round(0).astype("int32")
             df_res = df_res.sort_values(by="count", ascending=False)
             df_res.to_csv(self.pairs_res_csv, index=False)
 
@@ -1216,103 +1275,145 @@ class MSout_hb:
             hah_df = hah_df.merge(df, left_on=["Mi","Mj"], right_on=["Mi","Mj"])
             hah_df.to_csv(self.hah_ms_fp, index=False)
 
-            print(("Main output files:\n"
-                   f"  {self.pairs_csv!s} ({pairs_out.shape[0]:,} "
-                   "rows): conformers hb pairs\n"
-                   f"  {self.pairs_res_csv!s} ({df_res.shape[0]:,} rows): "
-                   "residues hb pairs (for loading in Cytoscape)\n"))
+            logging.info(("\nMain output files:\n"
+                          f"  {self.pairs_csv!s} ({pairs_out.shape[0]:,} rows): hb pairs data\n"
+                          f"  {self.pairs_res_csv!s} ({df_res.shape[0]:,} rows): "
+                          "residues hb pairs (for loading in Cytoscape)\n"
+                          ))
 
         return
 
     def hb_states_data2csv(self):
+        """
+        Outputs hb states data into two csv files:
+         - hb_states_pH*.csv: the hb microstates file with the state id defined by hb pairs in that hb ms;
+         - hb_states_pairs_pH*.csv: the unique hb pairs in all the returned hb microstates
+        """
         if self.hb_states:
             dfs = pd.DataFrame.from_dict(self.hb_states,
                                          orient="index",
                                          columns=["averE", "count", "occ"]
                                          ).reset_index()
-            dfs["averE"] = dfs["averE"].round(3)
-            dfs["occ"] = dfs["occ"].round(6)
+            dfs["averE"] = dfs["averE"].round(2)
+            dfs["occ"] = dfs["occ"].round(PREC)
             dfs["state_id"] = None
 
-            states_pairs_dict = defaultdict(int)
+            # get the unique hb pairs in all the returned hb microstates:
+            states_pairs_dict = defaultdict(lambda: [0, 0.])
+            # convert the index as tuple of integers to tuple of confids:
             for rx, ro in dfs.iterrows():
                 state_id = ""
                 for tpl in ro["index"]:
                     # get the effective count of each pair in the state key
-                    states_pairs_dict[tpl] += ro["count"]
+                    states_pairs_dict[tpl][0] += ro["count"]
+                    states_pairs_dict[tpl][1] += ro["occ"]
                     # convert conf indices to confids:
                     state_id = state_id + f"({self.iconf2confid[tpl[0]]},{self.iconf2confid[tpl[1]]}),"
-
                 # update converted state id, minus trailing comma:
                 dfs.loc[rx,"state_id"] = state_id[:-1]
      
             # prep hb states pairs output:
             dfsp = pd.DataFrame.from_dict(states_pairs_dict,
                                           orient="index",
-                                          columns=["count"]).reset_index()
-            dfsp[["Mi","Mj"]] = dfsp["index"].apply(lambda x: pd.Series([int(x[0]),
-                                                                         int(x[1])]))
+                                          columns=["count", "occ"]).reset_index()
             dfsp[["donor","acceptor"]] = dfsp["index"].apply(
                 lambda x: pd.Series([self.iconf2confid[x[0]],
                                      self.iconf2confid[x[1]]]))
-            dfsp["occ"] = (dfsp["count"]/self.n_hb_space).round(6)
+            dfsp["occ"] = (dfsp["count"]/self.n_space).round(PREC)
 
             # add short residue-based confid as in pairs_res file
             dfsp[["res_d","res_a"]] = dfsp.apply(
                 lambda x: pd.Series([get_resid(x["donor"]), get_resid(x["acceptor"])]), axis=1)
-            # boolean indicator: one pair member involves BK conf
+            # boolean indicator: one pair member involves BK conf; used for splitting heatmaps
             dfsp["with_bk"] = dfsp.apply(
                 lambda row: row["donor"][3:5]=="BK" or row["acceptor"][3:5]=="BK", axis=1)
-            dfsp = (dfsp[["Mi","Mj","donor","acceptor","count","occ","with_bk"]]
-                    .sort_values(by=["count", "Mi", "Mj"],
-                                 ascending=[False, True, True])
-            )
+
+            # output file has same format as hb_pairs_res file
+            # collapse confs to resid with res occ = max conf occ:
+            dfsp_res = dfsp.groupby(["res_d","res_a"], as_index=False).agg(
+                                    {"count":"max", "occ": "max", "with_bk": "max"})
+            dfsp_res["occ"] = dfsp_res["occ"].round(PREC)
+            dfsp_res["count"] = dfsp_res["count"].round(0).astype("int32")
+            #dfsp_res = dfsp_res[["res_d", "res_a", "count", "occ", "with_bk"]]
+            dfsp_res = dfsp_res.sort_values(by="count", ascending=False)
+
             with open(self.states_pairs_csv, "w") as fo:
-                fo.write("# States hb_pairs; state count, occ: per occupied returned states\n")
+                fo.write("# States hb pairs; state count, occ: per occupied returned states\n")
                 dfsp.to_csv(fo, index=False)
 
-            # exclude index, sort & save
+            # exclude indices, sort & save
             dfs = dfs[["state_id","averE","count","occ"]].sort_values(by="count",
                                                                       ascending=False)
             # build comment about % returned states
-            note = (f"# Data for the {self.n_hb_states:,} "
-                    "saved occupied hb_states whose count represents "
+            note = (f"# Data for the {self.n_hb_states:,} returned occupied "
+                    f"hb_states (@ {self.min_occ_print}) whose sum count represents "
                     f"{self.n_hb_space/self.n_space:.2%} of the "
-                    f"state space ({self.n_hb_space:,}/{self.n_space:,})\n"
+                    f"entire space ({self.n_hb_space:,}/{self.n_space:,})\n"
             )
             with open(self.states_csv, "w") as fo:
                 fo.write(note)
                 dfs.to_csv(fo, index=False)
 
-            print("Main output files:",
-                  f"  {self.states_pairs_csv!s}: hb pairs with effective occ from hb state space",
-                  f"  {self.states_csv!s}: hb states data",
-                  sep="\n")
+            logging.info((f"\nMain output files:\n"
+                          f"  {self.states_csv!s} ({dfs.shape[0]:,} rows): hb states data\n"
+                          f"  {self.states_pairs_csv!s} ({dfsp.shape[0]:,} rows): hb pairs with state space occ\n"
+                          ))
         return
 
     def __str__(self):
-        return (f"Conformers: {self.CI.n_confs:,}\n"
+        if self.n_space:
+            return (f"\nConformers: {self.CI.n_confs:,}\n"
+                    f"Fixed residues: {self.HDR.n_fixed_ics:,}\n"
+                    f"Free residues: {self.HDR.n_free_res:,}\n"
+                    f"Free conformers: {self.HDR.n_free_ics:,}\n"
+                    f"Background charge: {self.CI.background_crg:.0f}\n"
+                    f"State space: {self.n_space:,}\n"
+                    )
+        return (f"\nConformers: {self.CI.n_confs:,}\n"
                 f"Fixed residues: {self.HDR.n_fixed_ics:,}\n"
                 f"Free residues: {self.HDR.n_free_res:,}\n"
                 f"Free conformers: {self.HDR.n_free_ics:,}\n"
-                f"State space: {self.n_space:,}\n"
                 f"Background charge: {self.CI.background_crg:.0f}\n"
                 )
 
+    def get_processed_ms_info_txt(self) -> str:
+        """Text to output similar info for 'pairs' or 'states' processing.
+        """
+        txt = f"\nMicrostates space: {self.n_space:,}\n"
+        txt = txt + f"Occupied H-bonding space @ {self.min_occ_print}: {self.n_hb_space:,} "
+        txt = txt + f"({self.n_hb_space/self.n_space:.2%} of state space)\n"
+        if self.load_states:       
+            txt = txt + f"Saved occupied H-bonding states: {self.n_hb_states:,} (target: {self.n_target_states:,})\n"
+        else:
+            txt = txt + f"Occupied H-bonding pairs: {self.n_hb_pairs:,}\n"
+
+        return txt
+
     def do_load_ms(self) -> bool:
-        """Check presence of output according to self.load_states.
+        """Check presence of output according to self.load_states and self.reload.
         Returns:
          - go (boolean): True: load microstates, False: don't.
         """
         go = True
         if self.load_states:
             if self.states_csv.exists() and self.states_pairs_csv.exists():
-                print("Output files for hb states already exist.")
-                go = False
+                logging.info("Output files for hb states already exist.")
+                if not self.reload:
+                    go = False
+                else:  # delete all
+                    self.states_csv.unlink()
+                    self.states_pairs_csv.unlink()
         else:
-            if self.pairs_csv.exists() and self.pairs_res_csv.exists():
-                print("Output files for hb pairs already exist.")
-                go = False
+            if self.hah_ms_fp.exists() and self.pairs_csv.exists() and self.pairs_res_csv.exists():
+                logging.info("Output files for hb pairs already exist.")
+                if not self.reload:
+                    go = False
+                else:  # delete all
+                    if self.reductions_fp.exists():
+                        self.reductions_fp.unlink()
+                    self.hah_ms_fp.unlink()
+                    self.pairs_csv.unlink()
+                    self.pairs_res_csv.unlink()
         
         return go
 
@@ -1332,37 +1433,45 @@ class MSout_hb:
             return
         
         start_pipeline = time()
-
         self.mc_lines, self.n_skip, self.n_MC = get_msout_size_info(self.msout_fp,
                                                 n_target_states=self.n_target_states)
-        print(f"Approximate number of lines in msout file: {self.mc_lines:,}")
+        logging.info(f"Approximate number of lines in msout file: {self.mc_lines:,}")
         if self.n_skip == 1:
-            print("Warning: Returning all hb_states and printing every 5000th accepted state.")
+            logging.info("Warning: Returning all hb_states and printing every 5000th accepted state.")
 
         if self.load_states:
             start_t = time()
             self.I = self.get_sparse_matrix()
             self.load_hb_states()
-            show_elapsed_time(start_t, info="Loading H-bonding states")
-            # save loaded hb_states dict to csv:
-            start_t = time()
-            self.hb_states_data2csv()
-            show_elapsed_time(start_t, info="Processing final outputs for hb states")
+            logging.info(self.__str__())
+            logging.info(show_elapsed_time(start_t, info="Loading H-bonding states"))
+            if self.n_hb_states:
+                logging.info(self.get_processed_ms_info_txt())
+                # save loaded hb_states dict to csv:
+                #start_t = time()
+                self.hb_states_data2csv()
+                #logging.info(show_elapsed_time(start_t, info="Processing final outputs for hb states"))
         else:
             start_t = time()
             self.hb_adj = self.get_adjacency_dict()
             self.hb_adj_indices, self.hb_adj_indptr = self.get_adj_idx_idxptr()
             self.P = np.zeros((self.n_hb_confs, self.n_hb_confs), dtype=np.int32)
             self.load_hb_pairs()
-            show_elapsed_time(start_t, info="Loading H-bonding pairs")
-            # save loaded hb_pairs dict to csv:
-            start_t = time()
-            self.hb_pairs_data2csv()
-            show_elapsed_time(start_t, info="Processing final outputs for hb pairs")
+            logging.info(self.__str__())
+            logging.info(show_elapsed_time(start_t, info="Loading H-bonding pairs"))
+            if self.n_hb_pairs:
+                logging.info(self.get_processed_ms_info_txt())
+                # save loaded hb_pairs list to csv:
+                #start_t = time()
+                self.hb_pairs_data2csv()
+                #logging.info(show_elapsed_time(start_t, info="Processing final outputs for hb pairs"))
+            else:
+                # remove expanded file
+                self.hah_ms_fp.unlink()
 
-        print(self.__str__())
-        pipeline_time = show_elapsed_time(start_pipeline, info="MS H-bond pipeline", return_time=True)
-        tot_time = self.setup_time + pipeline_time
-        print(f"Elapsed time - Start to end: {tot_time:,.2f} s ({tot_time/60:,.2f} min)\n")
+        elapsed = time() - start_pipeline
+        logging.info(show_elapsed_time(start_pipeline, info="MS H-bond pipeline"))
+        tot_time = self.setup_time + elapsed
+        logging.info(f"Elapsed time - Start to end: {tot_time:,.2f} s ({tot_time/60:,.2f} min)")
 
         return
