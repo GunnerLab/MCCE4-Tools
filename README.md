@@ -22,19 +22,17 @@
   ```
 
   5. To _run_ the tools, either:
-    - Activate an appropriate environment associated with __python 3.10__ (and that includes the packages in the environment file, `MCCE4-Tools/mc4.yml`).
-    - Alternatively, you can create one with the provided `MCCE4-Tools/mc4.yml` file:
+    - Activate an appropriate environment associated with __python 3.10__ (and that includes the packages in the environment file, `MCCE4-Tools/mct4.yml`).
+    - Alternatively, you can create one with the provided `MCCE4-Tools/mct4.yml` file:
       * Choose one of these two options to create the environment:
         1. Option 1: Create a NEW environment named 'mc4' if you do not have one already. To find out, run the command: `conda env list`. You do not have an 'mc4' environment if it's not listed in its output:
         ```bash
-         conda env create -f mc4.yml
+         conda env create -f mct4.yml
         ```
-        2. Option 2: Update your existing 'mc4' environment (which you have already created if you have installed MCCE4-Alpha):
-        ```bash
-         conda env update -n mc4 -f mc4.yml
-        ```
+        2. ~~Option 2~~: REMOVED. DO NOT update your existing 'mc4' environment (which you have if you have installed MCCE4-Alpha) with the mct4.yml file: The python version will soon be unpinned to call for Python>=3.11, which MCCE4-Alpha is not setup to use at the moment, the two environments will use different python versions.
+
   6. Test a tool
-    * Activate your environment, e.g. `conda activate mc4`
+    * Activate your environment, e.g. `conda activate mct4`
     * Type `getpdb` and press Enter: the cli usage should display
 
   * __NOTES__
