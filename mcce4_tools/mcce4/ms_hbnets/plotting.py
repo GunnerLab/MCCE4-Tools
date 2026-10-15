@@ -15,7 +15,7 @@ import numpy as np
 import pandas as pd
 
 
-DEFAULT_FIGSIZE = (6,6)  # uniq donors, uniq acceptors counts < 30
+DEFAULT_FIGSIZE = (7,7)  # uniq donors, uniq acceptors counts < 30
 # single color
 COLOR_GRADIENTS = ['Blues','Greens','Greys','Oranges','Purples','Reds']
 AVAIL_COLORS = ", ".join(c for c in COLOR_GRADIENTS)

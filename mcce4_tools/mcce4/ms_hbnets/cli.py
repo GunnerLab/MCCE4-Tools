@@ -23,13 +23,11 @@ from argparse import RawTextHelpFormatter
 from datetime import datetime
 import logging
 from pathlib import Path
-from time import time
 from typing import Union
 
 import matplotlib.pyplot as plt
 
 from mcce4.io_utils import N_STATES
-from mcce4.io_utils import show_elapsed_time
 from mcce4.ms_hbnets.correlator import HbCorrelator
 from mcce4.ms_hbnets.msout_hb import do_checks
 from mcce4.ms_hbnets.msout_hb import is_int
@@ -39,7 +37,6 @@ from mcce4.ms_hbnets.plotting import DEFAULT_FIGSIZE, AVAIL_COLORS
 
 
 APP = "ms_hbnets"
-#LOG = APP + ".log"
 
 
 PLOTTING_ARGS = [
@@ -56,29 +53,11 @@ PLOTTING_ARGS = [
 ]
 
 
-# def setup_logging(level: str = "INFO"):
-#     """Configure logger to screen & file."""
-#     log_format = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s",
-#                                    datefmt='%m-%d %H:%M')
-#     screen_handler = logging.StreamHandler(sys.stdout)
-#     screen_handler.setFormatter(log_format)
-#     file_handler = logging.FileHandler(LOG,encoding="utf-8")
-#     file_handler.setFormatter(log_format)
-#     logging.basicConfig(
-#         level=getattr(logging, level.upper(), logging.INFO),
-#         format=log_format,
-#         handlers=[screen_handler, file_handler],
-#     )
-
-# setup_logging()
-
-
 def process_pairs(args: Union[dict, Namespace]):
     if isinstance(args, dict):
         args = Namespace(**args)
 
     logging.info("Processing pairs...")
-    process_start = time()
     mshb = MSout_hb(args.mcce_dir, args.ph, args.eh,
                     load_states=False,
                     min_occ=float(args.min_occ),
@@ -101,7 +80,6 @@ def process_pairs(args: Union[dict, Namespace]):
         #     logging.info("Pairs H_bonds checks: failed.")
 
     figs_args = {k: v for k, v in vars(args).items() if k in PLOTTING_ARGS}
-
     HbCorr = HbCorrelator(mshb,
                           hb_kind="pairs",
                           pairs_of_interest_fp=args.pairs_of_interest_csv,
@@ -112,7 +90,6 @@ def process_pairs(args: Union[dict, Namespace]):
     if not args.reload:
         logging.info(mshb)
     HbCorr.process_pairs()
-    logging.info(show_elapsed_time(process_start, info="H-bond pairs processing"))
     if HbCorr.ok:
         plt.show()
 
@@ -124,7 +101,6 @@ def process_states(args: Union[dict, Namespace]):
     if isinstance(args, dict):
         args = Namespace(**args)
 
-    process_start = time()
     mshb = MSout_hb(args.mcce_dir, args.ph, args.eh,
                     n_target_states=args.n_states,
                     load_states=True,
@@ -159,7 +135,6 @@ def process_states(args: Union[dict, Namespace]):
     if not args.reload:
         logging.info(mshb)
     HbCorr.process_states()
-    logging.info(show_elapsed_time(process_start, info="H-bond states processing"))
     if HbCorr.ok:
         plt.show()
 
