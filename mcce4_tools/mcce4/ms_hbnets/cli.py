@@ -403,13 +403,11 @@ compute each group correlation. Always true without filtering with pairs of inte
 
 
 def run_header(args: Namespace) -> str:
-    args_d = vars(args)
-    return (
-        f"\n{"-" * 60}\n"
-        f"Tool ms_hbnets: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
-        f"  Options used:\n{"\n ".join(f"\t{k} = {v}" for k,v in args_d.items())}\n"
-        f"{"-" * 60}"
-    )
+    # py 3.10: no double-quotes within f-strings
+    opts_lines = "\n ".join(f"\t{k} = {v}" for k,v in vars(args).items())
+    return (f"\n{'-' * 60}\n"
+            f"Tool ms_hbnets: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+            f"  Options used:\n{opts_lines}\n{'-' * 60}")
 
 
 def cli(argv=None):

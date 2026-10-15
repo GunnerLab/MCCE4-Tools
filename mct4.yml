@@ -1,10 +1,10 @@
 # Choose command to run to create the environment:
-# 1. Create a NEW environment named 'mc4':
+# 1. Create a NEW environment named 'mct4':
 #  conda env create -f mct4.yml
 # 2. Update an existing 'mc4' environment:
 #  conda env update -n mc4 -f mct4.yml
 # 
-name: mc4
+name: mct4
 channels:
   - conda-forge
   - defaults
