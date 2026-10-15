@@ -9,17 +9,20 @@ Handle the filtering and setup for generating heatmaps.
 The states correlation heatmaps are obtain using parallel processing.
 """
 from argparse import Namespace
+from collections import defaultdict
 import logging
 from multiprocessing import Pool
 from pathlib import Path
 from re import split as re_split, findall
+from time import time
 from typing import Union
 
 import numpy as np
 import pandas as pd
 
-from mcce4.ms_hbnets.msout_hb import get_resid, num_prec
-from mcce4.ms_hbnets.msout_hb import MIN_OCC, PREC
+from mcce4.io_utils import show_elapsed_time
+from mcce4.ms_hbnets.msout_hb import get_resid, group_confids_into_resids, num_prec
+from mcce4.ms_hbnets.msout_hb import MIN_OCC, STATES_PAIRS_COMMENT
 from mcce4.ms_hbnets.msout_hb import MSout_hb
 from mcce4.ms_hbnets.plotting import DEFAULT_FIGSIZE
 from mcce4.ms_hbnets.plotting import heatmap_from_df
@@ -76,6 +79,19 @@ def get_pairs_of_interest_df(pairs_of_interest_fp: Union[str, Path]) -> pd.DataF
         return None
 
     return poi_df
+
+
+def maybe_convert(df: pd.DataFrame) -> bool:
+    """Input dataframe df is loaded with either hb_pairs_res_*.csv or
+    hb_states_pairs_*.csv data.
+    If resids of a pair with flag 'with_bk'=True do no contain 'BK_',
+    returns True to indicate that the confid to resid naming & grouping
+    is to be redone to obtain the new parent file is to beto updated format.
+    """
+    mskp = df["res_d"].str.contains("BK_") | df["res_a"].str.contains("BK_")
+    msk = df["with_bk"].eq(True) & ~mskp
+
+    return bool(msk.any())
 
 
 class HbCorrelator:
@@ -181,6 +197,53 @@ class HbCorrelator:
 
         return None
 
+    def _redo_grouping_into_resid(self) -> pd.DataFrame:
+        """Redo the grouping of confid-based pairs into resid-based
+        pairs to update the new format as determined by _load_csv.
+        """
+        df = pd.read_csv(self.input_fp1, comment="#")
+        if self.hb_kind == "states":
+            # get the unique hb pairs in all the returned hb microstates:
+            states_pairs_dict = defaultdict(lambda: [0, 0.])
+            for rx, ro in df.iterrows():
+                tpls = set()
+                # split state_id into pairs; exclude first '('
+                for tpl in [val.split(",") for val in re_split(r",\(", ro["state_id"][1:])]:
+                    tpl[1] = tpl[1][:-1]  # exclude trailing ')'
+                    tpls.add((get_resid(tpl[0]), get_resid(tpl[1])))
+
+                for tpl in tpls:
+                    # get the effective count of each pair in the state key
+                    states_pairs_dict[tpl][0] += ro["count"]
+                    states_pairs_dict[tpl][1] += ro["occ"]
+
+            # prep hb states pairs output:
+            df = pd.DataFrame.from_dict(states_pairs_dict,
+                                         orient="index",
+                                         columns=["count", "occ"]).reset_index()
+            df[["res_d","res_a"]] = df["index"].apply(lambda x: pd.Series([x[0], x[1]]))
+        else:
+            # else, hb pairs file update:
+            df[["res_d","res_a"]] = df.apply(
+                lambda x: pd.Series([get_resid(x["donor"]), get_resid(x["acceptor"])]),
+                axis=1)
+
+        # common processing, up to saving:
+        df["with_bk"] = df.apply(
+            lambda row: row["res_d"][1:3]=="BK" or row["res_a"][1:3]=="BK", axis=1)
+        df_res = group_confids_into_resids(df)
+
+        if self.hb_kind == "states":
+            with open(self.input_fp2, "w") as fo:
+                fo.write(STATES_PAIRS_COMMENT)
+                df_res.to_csv(fo, index=False)
+        else:
+            df_res.to_csv(self.input_fp2, index=False)
+
+        logging.info(f"Updated the format of {self.input_fp2.name}")
+
+        return df_res
+    
     def _load_csv(self, csv_fp: Path) -> pd.DataFrame:
         """Load state_pairs or pairs_res csv and maybe update the csv format.
         """
@@ -192,37 +255,19 @@ class HbCorrelator:
             return
 
         df = pd.read_csv(csv_fp, comment="#")
-        save = False
-
-        if "res_d" not in df.columns:
-            save = True
-            logging.info("Adding 'res_d' and 'res_a' columns to get residue-based names and indices...")
-            # confids -> short resid:
-            df[["res_d","res_a"]] = df.apply(lambda x: pd.Series([get_resid(x["donor"]),
-                                                                  get_resid(x["acceptor"])]), axis=1)
-
-        msk_hoh = (df["res_d"].str.startswith("HOH") | df["res_a"].str.startswith("HOH"))
-        if msk_hoh.any():
-            save = True
-            df.loc[msk_hoh, "res_d"] = df.loc[msk_hoh, "res_d"].str.replace(r'^HOH', 'w', regex=True)
-            df.loc[msk_hoh, "res_a"] = df.loc[msk_hoh, "res_a"].str.replace(r'^HOH', 'w', regex=True)
-
-        if "Mi" in df.columns or "index" in df.columns:
-            # previous format of hb_states_pairs file
-            save = True
-            logging.info(f"Updating {csv_fp.name} with conformers collapsed to resid...")
-            # previous version: file has both confids and resid
-            # collapse confs to resid with res occ = max conf occ:
-            df = df.groupby(["res_d","res_a"], as_index=False).agg(
-                {"count":"max", "occ": "max", "with_bk": "max"}
-                )
-            df["occ"] = df["occ"].round(PREC)
-            df["count"] = df["count"].round(0).astype("int32")
-            # same columns as in hb_pairs_res:
-            df = df[["res_d", "res_a", "count","occ", "with_bk"]]
-            
-        if save:
-            df.to_csv(csv_fp, index=False)
+        # determine whether to update the format:
+        redo = maybe_convert(df)  # check resid format
+        if "res_d" in df.columns:
+            msk_hoh = (df["res_d"].str.startswith("HOH") | df["res_a"].str.startswith("HOH"))
+            redo = redo or msk_hoh.any()
+        else:
+            redo = True
+        redo = (redo
+                or "Mi" in df.columns 
+                or "index" in df.columns
+        )
+        if redo:
+            df = self._redo_grouping_into_resid()  # & save updated file
 
         return df
 
@@ -367,6 +412,7 @@ class HbCorrelator:
         if not self.ok:
             return
 
+        process_start = time()
         self.pairs_df = self.get_inputfile_pairs_data()
         if not self.ok:
             return
@@ -497,6 +543,7 @@ class HbCorrelator:
                 logging.info("No hb pairs of residue-backbone kind.")
 
         logging.info("Processing of pairs correlation over.\n")
+        logging.info(show_elapsed_time(process_start, info="H-bond pairs processing"))
 
         return
 
@@ -859,6 +906,7 @@ class HbCorrelator:
         if not self.ok:
             return
 
+        process_start = time()
         self.pairs_df = self.get_inputfile_pairs_data()
         if not self.ok:
             return
@@ -1010,5 +1058,7 @@ class HbCorrelator:
                     self.run_pipeline(centered_specs, runspecs)
 
         logging.info("Processing of states correlation over.")
+        logging.info(show_elapsed_time(process_start, info="H-bond states processing"))
+
         return
 

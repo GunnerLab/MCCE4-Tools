@@ -67,6 +67,7 @@ HAH_FNAME_INIT = "step2_out_hah.txt"
 fHAH_FNAME = "hah_{}.txt"
 fHAH_EXPANDED = "expanded_hah_{}.csv"
 fPAIR_RES = "hb_pairs_res_{}.csv"
+STATES_PAIRS_COMMENT = "# States hb pairs; state count, occ: per returned occupied states\n"
 
 
 # the largest spaces ever seen are in the order of millions;
@@ -105,13 +106,29 @@ def num_prec(num: Union[float, int]) -> int:
 
 
 def get_resid(confid:str) -> str:
-    """Return the one-letter resid in this format:
-    1-letter code + _ + Chain + resnum, ex: H_A59
+    """Return the one-letter resid from the confid:
+    THR01A0051_001 -> T_A51
+    ASPBKA0052_000 -> DBK_A52
     """
     id1 = res3_to_res1.get(confid[:3], confid[:3])
     if id1 == "HOH":
         id1 = "w"
-    return f"{id1}_" + confid[5] + str(int(confid[6:-4]))
+    if confid[3:5] == "BK":
+        return f"{id1}BK_{confid[5]}{int(confid[6:-4])}"
+    else:
+        return f"{id1}_{confid[5]}{int(confid[6:-4])}"
+
+
+def group_confids_into_resids(df: pd.DataFrame) -> pd.DataFrame:
+    """Group confid-based pairs into resid-based pairs &
+    sort by count descendingly.
+    """
+    df = df.groupby(["res_d","res_a"], as_index=False).agg(
+            {"count":"sum", "occ": "sum", "with_bk": "max"})
+    df["occ"] = df["occ"].round(PREC)
+    df["count"] = df["count"].round(0).astype("int32")
+
+    return df.sort_values(by="count", ascending=False)
 
 
 def is_int(val:str) -> bool:
@@ -1260,12 +1277,8 @@ class MSout_hb:
                 lambda row: row["donor"][3:5]=="BK" or row["acceptor"][3:5]=="BK",
                 axis=1)
             
-            # collapse confs to resid with res occ = max conf occ:
-            df_res = df.groupby(["res_d","res_a"], as_index=False).agg(
-                 {"count":"max", "occ": "max", "with_bk": "max"})
-            df_res["occ"] = df_res["occ"].round(PREC)
-            df_res["count"] = df_res["count"].round(0).astype("int32")
-            df_res = df_res.sort_values(by="count", ascending=False)
+            # # collapse confs to resid with res occ = sum of confs occ:
+            df_res = group_confids_into_resids(df)
             df_res.to_csv(self.pairs_res_csv, index=False)
 
             # save new cols to expanded files
@@ -1319,7 +1332,7 @@ class MSout_hb:
             dfsp[["donor","acceptor"]] = dfsp["index"].apply(
                 lambda x: pd.Series([self.iconf2confid[x[0]],
                                      self.iconf2confid[x[1]]]))
-            dfsp["occ"] = (dfsp["count"]/self.n_space).round(PREC)
+            dfsp["occ"] = dfsp["occ"].round(PREC)
 
             # add short residue-based confid as in pairs_res file
             dfsp[["res_d","res_a"]] = dfsp.apply(
@@ -1329,17 +1342,10 @@ class MSout_hb:
                 lambda row: row["donor"][3:5]=="BK" or row["acceptor"][3:5]=="BK", axis=1)
 
             # output file has same format as hb_pairs_res file
-            # collapse confs to resid with res occ = max conf occ:
-            dfsp_res = dfsp.groupby(["res_d","res_a"], as_index=False).agg(
-                                    {"count":"max", "occ": "max", "with_bk": "max"})
-            dfsp_res["occ"] = dfsp_res["occ"].round(PREC)
-            dfsp_res["count"] = dfsp_res["count"].round(0).astype("int32")
-            #dfsp_res = dfsp_res[["res_d", "res_a", "count", "occ", "with_bk"]]
-            dfsp_res = dfsp_res.sort_values(by="count", ascending=False)
-
+            dfsp_res = group_confids_into_resids(dfsp)
             with open(self.states_pairs_csv, "w") as fo:
-                fo.write("# States hb pairs; state count, occ: per occupied returned states\n")
-                dfsp.to_csv(fo, index=False)
+                fo.write(STATES_PAIRS_COMMENT)
+                dfsp_res.to_csv(fo, index=False)
 
             # exclude indices, sort & save
             dfs = dfs[["state_id","averE","count","occ"]].sort_values(by="count",
@@ -1448,9 +1454,7 @@ class MSout_hb:
             if self.n_hb_states:
                 logging.info(self.get_processed_ms_info_txt())
                 # save loaded hb_states dict to csv:
-                #start_t = time()
                 self.hb_states_data2csv()
-                #logging.info(show_elapsed_time(start_t, info="Processing final outputs for hb states"))
         else:
             start_t = time()
             self.hb_adj = self.get_adjacency_dict()
@@ -1462,9 +1466,7 @@ class MSout_hb:
             if self.n_hb_pairs:
                 logging.info(self.get_processed_ms_info_txt())
                 # save loaded hb_pairs list to csv:
-                #start_t = time()
                 self.hb_pairs_data2csv()
-                #logging.info(show_elapsed_time(start_t, info="Processing final outputs for hb pairs"))
             else:
                 # remove expanded file
                 self.hah_ms_fp.unlink()
