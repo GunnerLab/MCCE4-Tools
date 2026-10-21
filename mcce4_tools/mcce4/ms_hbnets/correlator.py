@@ -14,6 +14,7 @@ import logging
 from multiprocessing import Pool
 from pathlib import Path
 from re import split as re_split, findall
+from tempfile import TemporaryDirectory
 from time import time
 from typing import Union
 
@@ -164,7 +165,8 @@ class HbCorrelator:
         self.corr_wise: str = "col"
         self.split_kind: str = None
         self.include_states_da_corr = include_states_da_corr
-        
+        self.mmap_fps: dict = None
+        self.dat_fps: dict = None
         self.pairs_df = None  # main df, ready for splitting if needed
         # filtered with pairs_of_interest_fp is given & min_occ:  
         self.pairs_df = self.get_inputfile_pairs_data()
@@ -199,13 +201,14 @@ class HbCorrelator:
 
     def _redo_grouping_into_resid(self) -> pd.DataFrame:
         """Redo the grouping of confid-based pairs into resid-based
-        pairs to update the new format as determined by _load_csv.
+        pairs to update the new format.
+        Called by _load_csv.
         """
         df = pd.read_csv(self.input_fp1, comment="#")
         if self.hb_kind == "states":
             # get the unique hb pairs in all the returned hb microstates:
             states_pairs_dict = defaultdict(lambda: [0, 0.])
-            for rx, ro in df.iterrows():
+            for _, ro in df.iterrows():
                 tpls = set()
                 # split state_id into pairs; exclude first '('
                 for tpl in [val.split(",") for val in re_split(r",\(", ro["state_id"][1:])]:
@@ -463,7 +466,7 @@ class HbCorrelator:
             if res_respairs_df is not None:
                 n_ud = len(res_respairs_df["Donor"].unique())
                 n_ua = len(res_respairs_df["Acceptor"].unique())
-                logging.info(f"Non BK respairs, uniq donors: {n_ud}, uniq acceptors: {n_ua}")
+                logging.info(f"RES-RES pairs, uniq donors: {n_ud}, uniq acceptors: {n_ua}")
                 # data heatmap:
                 matrix_df = res_respairs_df.pivot(index="Donor", columns="Acceptor", values="occ").fillna(0)
 
@@ -506,7 +509,7 @@ class HbCorrelator:
             if bk_respairs_df is not None:
                 n_bk_ud = len(bk_respairs_df["Donor"].unique())
                 n_bk_ua = len(bk_respairs_df["Acceptor"].unique())
-                logging.info(f"BK respairs, uniq donors: {n_bk_ud} uniq acceptors: {n_bk_ua}")
+                logging.info(f"RES-BK pairs, uniq donors: {n_bk_ud} uniq acceptors: {n_bk_ua}")
                 # data heatmap:
                 matrix_df = bk_respairs_df.pivot(index="Donor", columns="Acceptor", values="occ").fillna(0)
                 # get the 2 kinds or corr:
@@ -577,7 +580,7 @@ class HbCorrelator:
                                 }
             # dict to rename the corr matrix rows & columns:
             self.mat_ix2res = {v:k for k, v in self.res2mat_ix.items()}
-            # logging.info(f"States DA matrices shape: {self.n_rows}, {self.n_cols}")
+            logging.info(f"States DA matrices shape: {self.n_rows}, {self.n_cols}")
 
         else:  # corr of pairs
             # Create a MultiIndex from the target columns
@@ -590,7 +593,7 @@ class HbCorrelator:
             # dict to rename the corr matrix rows & columns:
             # transform tuple to str: ('H_A12', 'V_A34') -> 'H_A12|V_A34'
             self.mat_ix2res = {v: f"{k[0]}|{k[1]}" for k, v in self.res2mat_ix.items()}
-            # logging.info(f"States matrices columns: {self.n_cols}")
+            logging.info(f"States PAIRS matrices columns: {self.n_cols}")
   
         return
 
@@ -614,7 +617,7 @@ class HbCorrelator:
                 if mj is None:
                     continue
                 state_mat[mi, mj] = hbs["occ"]
-            else:  # states pairs
+            elif self.corr_kind == "pairs":
                 pi = self.res2mat_ix.get(tpl)
                 if pi is None:
                     continue
@@ -647,14 +650,16 @@ class HbCorrelator:
 
         # Initialize an empty binary file on disk to hold the stacked matrices
         if self.corr_kind == "da":
+            logging.info("Creating stored matrix for Donors or Acceptors correlation")
             data_file = np.memmap(self.dat_fps["ms_matrices"], dtype=DTYPE, mode='w+',
                                   shape=(self.n_matrices, self.n_rows, self.n_cols))
             # Add each matrix sequentially into the memmap file:
             for i in range(self.n_matrices):
                 data_file[i] = self._hb_ms2matrix(dfs.loc[i], np.zeros((self.n_rows, self.n_cols)))
         else:
+            logging.info("Creating stored matrix for Pairs correlation")
             data_file = np.memmap(self.dat_fps["ms_matrices"], dtype=DTYPE, mode='w+',
-                                  shape=(self.n_matrices, self.n_cols))
+                                    shape=(self.n_matrices, self.n_cols))
             # Add each matrix sequentially into the memmap file:
             for i in range(self.n_matrices):
                 data_file[i] = self._hb_ms2matrix(dfs.loc[i], np.zeros((self.n_cols)))
@@ -671,23 +676,25 @@ class HbCorrelator:
         """State pairs processing.
         Worker function to process a single row index.
         """
-        if self.corr_kind == "pairs":
-            logging.info("ERROR: _process_row_chunk called when self.corr_kind == 'pairs'")
-            self.ok = False
-            return r, 0
-        
         # Re-open the memmap inside the worker process (safe for read-only)
-        X_mmap = np.memmap(self.dat_fps["ms_matrices"], mode="r", dtype=DTYPE,
-                           shape=(self.n_matrices, self.n_rows, self.n_cols))
-        # Extract the row across all matrices/columns and flatten to 1D
-        row_data = X_mmap[:, r, :].ravel()
-        # Return the centered row data
-        return r, row_data - np.mean(row_data)
+        if self.corr_kind == "da":
+            X_mmap = np.memmap(self.dat_fps["ms_matrices"], mode="r", dtype=DTYPE,
+                                shape=(self.n_matrices, self.n_rows, self.n_cols))
+            row_data = X_mmap[:, r, :].ravel()
+            return r, row_data - np.mean(row_data)
+        else:
+            X_mmap = np.memmap(self.dat_fps["ms_matrices"], mode="r", dtype=DTYPE,
+                               shape=(self.n_matrices, self.n_rows))
+            # Extract the row across all matrices/columns and flatten to 1D
+            row_data = X_mmap[r, :].ravel()
+            # Return the centered row data
+            return r, row_data - np.mean(row_data)
 
     def _process_col_chunk(self, c):
         """State pairs processing.
         Worker function to process a single column index.
         """
+        # Re-open the memmap inside the worker process (safe for read-only)
         if self.corr_kind == "da":
             X_mmap = np.memmap(self.dat_fps["ms_matrices"], mode="r", dtype=DTYPE,
                                shape=(self.n_matrices, self.n_rows, self.n_cols))
@@ -705,7 +712,6 @@ class HbCorrelator:
         if not self.ok:
             return 
 
-        logging.info(f"Starting parallel processing for {self.corr_wise}-wise correlation...")
         # Initialize a disk-backed memmap to collect the results from workers
         X_centered = np.memmap(centered_specs["centered_fp"],
                                shape=centered_specs["kind_shape"],
@@ -722,6 +728,34 @@ class HbCorrelator:
         del X_centered
 
         return
+
+    def get_centered_specs(self) -> dict:
+        """Depend on corr-kind, corr-wise
+        """
+        centered_specs: dict = None
+        if self.corr_wise == "col":
+            if self.corr_kind == "da":
+                kind_shape = (self.n_cols, self.n_matrices * self.n_cols)
+            else:
+                kind_shape = (self.n_cols, self.n_matrices)
+
+            centered_specs = {"num_features": self.n_cols,
+                                "worker_fn": self._process_col_chunk,
+                                "centered_fp": self.dat_fps["ms_matrices_cols"],
+                                "kind_shape": kind_shape,
+                                }
+        else:  # self.corr_wise = "row"
+            if self.corr_kind == "da":
+                kind_shape = (self.n_rows, self.n_matrices * self.n_rows)
+            else:
+                kind_shape = (self.n_rows, self.n_matrices)
+
+            centered_specs = {"num_features": self.n_rows,
+                                "worker_fn": self._process_row_chunk,
+                                "centered_fp": self.dat_fps["ms_matrices_rows"],
+                                "kind_shape": kind_shape,
+                                }
+        return centered_specs
 
     def get_states_matrices_correlation(self, centered_fp: Path, kind_shape: tuple):
         if not self.ok:
@@ -754,7 +788,7 @@ class HbCorrelator:
             logging.info(" Setting undefined values for constant features in the final correlation matrix to 1")
             self.corr_matrix[zero_std_mask, :] = 1.
             self.corr_matrix[:, zero_std_mask] = 1.
-        logging.info(f"Obtained {self.corr_wise.capitalize()}-wise correlation matrix, shape: {self.corr_matrix.shape}")
+        logging.info(f"States correlation matrix shape: {self.corr_matrix.shape}")
 
         return
 
@@ -818,15 +852,7 @@ class HbCorrelator:
         if not self.ok:
             return
 
-        corr_kind: str
-        corr_wise: str
-        fig_fp: Path
-        fig_title: str
-        fig_size: tuple
-        corr_kind = self.corr_kind
-        corr_wise = self.corr_wise
-
-        if corr_kind == "pairs":
+        if self.corr_kind == "pairs":  # corr_wise == "col"
             hdr = self.get_hdr_info()
             fig_size = self.figs_args.figsize_corr
             if not self.split_bk:
@@ -843,14 +869,14 @@ class HbCorrelator:
                     fig_title = f"H-bond States Pairs Correlation, res-res\n{hdr}"
         else:
             # da: Donors, Acceptors correl
-            if corr_wise == "row":
+            if self.corr_wise == "row":
                 fig_size = self.figs_args.figsize_donor_corr
                 if not self.split_kind:
                     fig_fp = self.input_fp1.with_name(f"{self.input_fp1.stem}_corr_donors.png")
                     fig_title = "H-bond States Donors Correlation"
                 else:
                     fig_fp = self.input_fp1.with_name(
-                        f"{self.input_fp1.stem}_corr_donors_{self.df_split_kind}.png"
+                        f"{self.input_fp1.stem}_corr_donors_{self.split_kind}.png"
                         )
                     if self.split_kind =="bk":
                         fig_size = self.figs_args.figsize_donor_corr_bk
@@ -873,27 +899,95 @@ class HbCorrelator:
                         fig_title = "H-bond States Acceptors Correlation, res-res"
 
         return {
-                 "corr_kind": corr_kind,
-                 "corr_wise": corr_wise,
+                # "corr_kind": self.corr_kind,
+                # "corr_wise": self.corr_wise,
                  "fig_fp": fig_fp,
                  "fig_title": fig_title,
                  "fig_size": fig_size,
                 }
 
-    def run_pipeline(self, centered_specs: dict, runspecs: dict):
+    def run_pipeline_pairs_corr(self, pairs_df: pd.DataFrame):
+        """
+        All mem maps are created in a temp folder.
+        """
         if not self.ok:
             return
 
-        self.corr_kind = runspecs["corr_kind"]
-        self.corr_wise = runspecs["corr_wise"]
+        self.get_dims_dicts(pairs_df)
+        self.dat_fps = self.mmap_fps.copy()
+
+        tmp_dir = TemporaryDirectory(delete=False)
+        # set dat filenames to use tmp dir:
+        for key in self.dat_fps:
+            dp = Path(tmp_dir.name).joinpath(self.dat_fps[key])
+            self.dat_fps[key] = dp
+
+        # create main binary map using dims & self.corr_kind:
+        self.save_hb_microstates_matrices()
+        if not self.ok:
+            tmp_dir.cleanup()
+            return
+        
+        centered_specs = self.get_centered_specs()
         self.save_centered_matrices(centered_specs)
         self.get_states_matrices_correlation(centered_specs["centered_fp"],
                                              centered_specs["kind_shape"])
+        runspecs = self.get_fig_specs()
         self.save_corr_heatmap(fig_size=runspecs["fig_size"],
                                fig_save_fp=runspecs["fig_fp"],
                                title=runspecs["fig_title"])
+        tmp_dir.cleanup()
+
         return
-    
+
+    def run_pipeline_da_corr(self, pairs_df: pd.DataFrame):
+        """
+        All mem maps are created in a temp folder.
+        The Donors/Acceptors use the same hb_microstates matrices,
+        but separate centered matrices.
+        """
+        if not self.ok:
+            return
+
+        self.get_dims_dicts(pairs_df)
+        self.dat_fps = self.mmap_fps.copy()
+
+        tmp_dir = TemporaryDirectory(delete=False)
+        # set dat filenames to use tmp dir:
+        for key in self.dat_fps:
+            dp = Path(tmp_dir.name).joinpath(self.dat_fps[key])
+            self.dat_fps[key] = dp
+
+        # create main binary map using dims & self.corr_kind:
+        self.save_hb_microstates_matrices()
+        if not self.ok:
+            tmp_dir.cleanup()
+            return
+
+        # donors:
+        self.corr_wise = "row"
+        centered_specs = self.get_centered_specs()
+        self.save_centered_matrices(centered_specs)
+        self.get_states_matrices_correlation(centered_specs["centered_fp"],
+                                             centered_specs["kind_shape"])
+        runspecs = self.get_fig_specs()
+        self.save_corr_heatmap(fig_size=runspecs["fig_size"],
+                               fig_save_fp=runspecs["fig_fp"],
+                               title=runspecs["fig_title"])
+        # acceptors:
+        self.corr_wise = "col"
+        centered_specs = self.get_centered_specs()
+        self.save_centered_matrices(centered_specs)
+        self.get_states_matrices_correlation(centered_specs["centered_fp"],
+                                             centered_specs["kind_shape"])
+        runspecs = self.get_fig_specs()
+        self.save_corr_heatmap(fig_size=runspecs["fig_size"],
+                               fig_save_fp=runspecs["fig_fp"],
+                               title=runspecs["fig_title"])
+        tmp_dir.cleanup()
+
+        return
+
     def process_states(self):
         """
         Process hb states data using parallelism.
@@ -916,146 +1010,52 @@ class HbCorrelator:
         if split_dfs is not None:  # => self.split_bk == True
             res_pairs_df, bk_pairs_df = split_dfs
 
-        # dat files always re-created as they will depends on the list of 'pairs of interest'
-        # save all matrices in memory mapped binary file:
-        dat_dir = self.mcce_dir.joinpath(".dats")
-        dat_dir.mkdir(exist_ok=True)
-        self.dat_fps = {"ms_matrices": dat_dir.joinpath(f"hb_matrices_{self.pheh_str}.dat"),
-                        "ms_matrices_rows": dat_dir.joinpath(f"hb_matrices_row_centered_{self.pheh_str}.dat"),
-                        "ms_matrices_cols": dat_dir.joinpath(f"hb_matrices_col_centered_{self.pheh_str}.dat"),
-                      }
+        # dat files are always re-created as they will depends on the list of 'pairs of interest'
+        # Name of ph-dependent mem maps:
+        # The caller using this dict will construct the path using a new tempdir
+        self.mmap_fps = {"ms_matrices": f"hb_matrices_{self.pheh_str}.dat",
+                         "ms_matrices_rows": f"hb_matrices_row_centered_{self.pheh_str}.dat",
+                         "ms_matrices_cols": f"hb_matrices_col_centered_{self.pheh_str}.dat",
+                        }
 
-        centered_specs: dict = None
         if not self.split_bk:
             self.corr_kind = "pairs"
+            self.corr_wise = "col"
             self.split_kind = ""
-            self.get_dims_dicts(self.pairs_df)
-            # create main binary mat using dims & self.corr_kind:
-            self.save_hb_microstates_matrices()
-            if not self.ok:
-                return            
-            centered_specs = {
-                    "num_features": self.n_cols,
-                    "worker_fn": self._process_col_chunk,
-                    "centered_fp": self.dat_fps["ms_matrices_cols"],
-                    "kind_shape": (self.n_cols, self.n_matrices),
-                    }
-            runspecs = self.get_fig_specs()
-            self.run_pipeline(centered_specs, runspecs)
+            logging.info("Starting correlation pipeline for filtered hb states...")
+            self.run_pipeline_pairs_corr(self.pairs_df)
 
             if self.include_states_da_corr:
+                logging.info(" + Starting requested Donor & Acceptor correlation pipeline for filtered hb states...")
+                # user requested Donor or Acceptor pairs correl:
                 self.corr_kind = "da"
-                self.get_dims_dicts(self.pairs_df)
-                self.save_hb_microstates_matrices()
-                if not self.ok:
-                    return                
-                # donors:
-                self.corr_wise = "row"
-                centered_specs = {
-                    "num_features": self.n_rows,
-                    "worker_fn": self._process_row_chunk,
-                    "centered_fp": self.dat_fps["ms_matrices_rows"],
-                    "kind_shape": (self.n_rows, self.n_matrices * self.n_rows),
-                    }
-                runspecs = self.get_fig_specs()
-                self.run_pipeline(centered_specs, runspecs)
-
-                # acceptors:
-                self.corr_wise = "col"
-                centered_specs = {
-                    "num_features": self.n_cols,
-                    "worker_fn": self._process_col_chunk,
-                    "centered_fp": self.dat_fps["ms_matrices_cols"],
-                    "kind_shape": (self.n_cols, self.n_matrices * self.n_cols),
-                    }
-                runspecs = self.get_fig_specs()
-                self.run_pipeline(centered_specs, runspecs)
+                self.run_pipeline_da_corr(self.pairs_df)
         else:
             if res_pairs_df is not None:
-                self.get_dims_dicts(res_pairs_df)
+                logging.info("Starting correlation pipeline for res-res states pairs...")
                 self.corr_kind = "pairs"
+                self.corr_wise = "col"
                 self.split_kind = "res"
-                self.save_hb_microstates_matrices()
-                if not self.ok:
-                    return
-                centered_specs = {
-                    "num_features": self.n_cols,
-                    "worker_fn": self._process_col_chunk,
-                    "centered_fp": self.dat_fps["ms_matrices_cols"],
-                    "kind_shape": (self.n_cols, self.n_matrices),
-                    }
-                runspecs = self.get_fig_specs()
-                self.run_pipeline(centered_specs, runspecs)
+                self.run_pipeline_pairs_corr(res_pairs_df)
 
                 if self.include_states_da_corr:
+                    logging.info(" + Starting requested Donor & Acceptor correlation pipeline for res-res states pairs...")
+                    # user requested Donor or Acceptor pairs correl:
                     self.corr_kind = "da"
-                    self.get_dims_dicts(res_pairs_df)
-                    self.save_hb_microstates_matrices()
-                    if not self.ok:
-                        return                    
-                    # donors:
-                    self.corr_wise = "row"
-                    centered_specs = {
-                        "num_features": self.n_rows,
-                        "worker_fn": self._process_row_chunk,
-                        "centered_fp": self.dat_fps["ms_matrices_rows"],
-                        "kind_shape": (self.n_rows, self.n_matrices * self.n_rows),
-                        }
-                    runspecs = self.get_fig_specs()
-                    self.run_pipeline(centered_specs, runspecs)
-                    # acceptors:
-                    self.corr_wise = "col"
-                    centered_specs = {
-                        "num_features": self.n_cols,
-                        "worker_fn": self._process_col_chunk,
-                        "centered_fp": self.dat_fps["ms_matrices_cols"],
-                        "kind_shape": (self.n_cols, self.n_matrices * self.n_cols),
-                        }
-                    runspecs = self.get_fig_specs()
-                    self.run_pipeline(centered_specs, runspecs)
+                    self.run_pipeline_da_corr(res_pairs_df)
 
             if bk_pairs_df is not None:
-                self.split_kind = "bk"
+                logging.info("Starting correlation pipeline for res-bk states pairs...")
                 self.corr_kind = "pairs"
-                self.get_dims_dicts(bk_pairs_df)
-                self.save_hb_microstates_matrices()
-                if not self.ok:
-                    return
-                centered_specs = {
-                    "num_features": self.n_cols,
-                    "worker_fn": self._process_col_chunk,
-                    "centered_fp": self.dat_fps["ms_matrices_cols"],
-                    "kind_shape": (self.n_cols, self.n_matrices),
-                    }
-                runspecs = self.get_fig_specs()
-                self.run_pipeline(centered_specs, runspecs)
+                self.corr_wise = "col"
+                self.split_kind = "bk"
+                self.run_pipeline_pairs_corr(bk_pairs_df)
 
                 if self.include_states_da_corr:
+                    logging.info(" + Starting requested Donor & Acceptor correlation pipeline for res-bk states pairs...")
+                    # user requested Donor or Acceptor pairs correl:
                     self.corr_kind = "da"
-                    self.get_dims_dicts(res_pairs_df)
-                    self.save_hb_microstates_matrices()
-                    if not self.ok:
-                        return
-                    # donors:
-                    self.corr_wise = "row"
-                    centered_specs = {
-                        "num_features": self.n_rows,
-                        "worker_fn": self._process_row_chunk,
-                        "centered_fp": self.dat_fps["ms_matrices_rows"],
-                        "kind_shape": (self.n_rows, self.n_matrices * self.n_rows),
-                        }
-                    runspecs = self. get_fig_specs()
-                    self.run_pipeline(centered_specs, runspecs)
-                    # acceptors:
-                    self.corr_wise = "col"
-                    centered_specs = {
-                        "num_features": self.n_cols,
-                        "worker_fn": self._process_col_chunk,
-                        "centered_fp": self.dat_fps["ms_matrices_cols"],
-                        "kind_shape": (self.n_cols, self.n_matrices * self.n_cols),
-                        }
-                    runspecs = self.get_fig_specs()
-                    self.run_pipeline(centered_specs, runspecs)
+                    self.run_pipeline_da_corr(bk_pairs_df)
 
         logging.info("Processing of states correlation over.")
         logging.info(show_elapsed_time(process_start, info="H-bond states processing"))
