@@ -57,7 +57,6 @@ def process_pairs(args: Union[dict, Namespace]):
     if isinstance(args, dict):
         args = Namespace(**args)
 
-    logging.info("Processing pairs...")
     mshb = MSout_hb(args.mcce_dir, args.ph, args.eh,
                     load_states=False,
                     min_occ=float(args.min_occ),
@@ -69,6 +68,8 @@ def process_pairs(args: Union[dict, Namespace]):
         return
 
     mshb.run_ms_pipeline(load_states=False)
+    if not args.reload:
+        logging.info(mshb)
     logging.info("Microstates H_bonds collection for pairs over.")
 
     # bypassed; under review
@@ -87,8 +88,6 @@ def process_pairs(args: Union[dict, Namespace]):
                           split_BK=args.split_BK,
                           figs_args=figs_args,
     )
-    if not args.reload:
-        logging.info(mshb)
     HbCorr.process_pairs()
     if HbCorr.ok:
         plt.show()
@@ -113,6 +112,8 @@ def process_states(args: Union[dict, Namespace]):
         return
 
     mshb.run_ms_pipeline(load_states=True)
+    if not args.reload:
+        logging.info(mshb)
     logging.info("Microstates H_bonds collection over.")
 
     if args.run_checks:
@@ -132,8 +133,6 @@ def process_states(args: Union[dict, Namespace]):
                           split_BK=args.split_BK,
                           figs_args=figs_args,
     )
-    if not args.reload:
-        logging.info(mshb)
     HbCorr.process_states()
     if HbCorr.ok:
         plt.show()
@@ -177,22 +176,30 @@ def to_figsize(strtpl: str):
         return w, h, unit
 
 
+DESC = """
+Gathers the H-bonding conformer pairs and states occupancies from the
+microstates file specified by a mcce dir, pH & Eh (if the corresponding
+output files are not found or --reload is true), and saves several heatmaps:
+Data heatmaps:
+  - The hb_states_pairs or hb_pairs_res heatmaps
+Correlation heatmaps:
+  - The hb pairs Donors and the Acceptors correlation heatmaps
+  - The microstates pairs heatmaps
+""" + f"""
+The default heatmaps size is {DEFAULT_FIGSIZE} with implied unit 'in'.
+Requires the structural H-bonds data output by the `detect_hbonds` tool.
+"""
+
+
 def cli_parser():
     p = ArgumentParser(prog=APP,
         usage="""ms_hbnets pairs [+ options if non-default]; see ms_hbnets pairs -h
        ms_hbnets states [+ options if non-default]; see ms_hbnets pairs -h""",
-        description="""
-Gathers the H-bonding conformer pairs and states occupancies from the
-microstates file specified by a mcce dir, pH & Eh (if the corresponding
-output files are not found or --reload is true), and saves several heatmaps:
-  - The hb_states_pairs or hb_pairs_res heatmaps plot the data as a figure
-  - The Donors and the Acceptors correlation heatmaps for both hb pairs and hb states
-The default heatmaps size is (6,6) with implied unit 'in'.
-Requires the structural H-bonds data output by the `detect_hbonds` tool.""",
+        description=DESC,
     formatter_class=RawTextHelpFormatter,
     )
     # COMMON parser: for pairs and states processing
-    cp = ArgumentParser(add_help=False)
+    cp = ArgumentParser(add_help=False, formatter_class=RawTextHelpFormatter)
     cp.add_argument(
         "-mcce-dir",
         default=".",
@@ -218,8 +225,13 @@ Requires the structural H-bonds data output by the `detect_hbonds` tool.""",
     cp.add_argument("-pairs-of-interest-csv",
                     default=None,
                     help="""
-File listing comma-separated H-bonding pairs in resid format (ex: R_A112,N_A106), that will 
-filter the main data file prior to producing the heatmaps; Default: %(default)s"""
+File listing comma-separated H-bonding pairs in resid format that will 
+filter the main data file prior to producing the heatmaps; Default: %(default)s
+Format example: 
+  R_A112,N_A106
+  SBK_A50,D_A48
+  ...
+"""
                     )
     cp.add_argument("-data-cbar-min",
                     type=float,
@@ -232,31 +244,31 @@ filter the main data file prior to producing the heatmaps; Default: %(default)s"
                     help=f"Color of the data heatmaps, one of: {AVAIL_COLORS}; Default: %(default)s"
                     )
     cp.add_argument("--run-checks",
-                   action="store_true",
-                   default=False,
-                   help="Perform checks on main outputs; Default: %(default)s"
-                   )
+                    action="store_true",
+                    default=False,
+                    help="Perform checks on main outputs; Default: %(default)s"
+                    )
     cp.add_argument("--reload",
-                   action="store_true",
-                   default=False,
-                   help="Reload the microstates data (overwrites existing output files); Default: %(default)s"
-                   )
+                    action="store_true",
+                    default=False,
+                    help="Reload the microstates data (overwrites existing output files); Default: %(default)s"
+                    )
     cp.add_argument("-v", "--verbose",
-                   action="store_true",
-                   default=False,
-                   help="Output more details from the mshout file loader; Default: %(default)s"
-                   )
+                    action="store_true",
+                    default=False,
+                    help="Output more details from the mshout file loader; Default: %(default)s"
+                    )
     subparsers = p.add_subparsers(
         required=True,
         title=f"{APP} sub-commands",
         dest="subparser_name",
     )
     sub1 = subparsers.add_parser("pairs",
-        usage="""ms_hbnets pairs -ph 5                # get hb pairs at a non-default pH (--reload needed if outputs exist)
-       ms_hbnets pairs -figsize-data 8,8    # change the data heatmap size;
-       ms_hbnets pairs -figsize-data ,,cm   # change the unit of the data heatmap to cm
-       ms_hbnets pairs -data-cbar-min 0.3   # change the cbar lowest bound of the data heatmap
-       ms_hbnets pairs -data-map-color Reds # change the color of the data heatmap""",
+        usage="""ms_hbnets pairs -ph 5                  # get hb pairs at a non-default pH (--reload needed if outputs exist)
+       ms_hbnets pairs -figsize-data 8,8      # change the data heatmap size;
+       ms_hbnets pairs -figsize-data ,,cm     # change the unit of the data heatmap to cm
+       ms_hbnets pairs -data-cbar-min 0.3     # change the cbar lowest bound of the data heatmap
+       ms_hbnets pairs -data-map-color Greens # change the color of the data heatmap""",
         description="""
 Gathers the H-bond pairs data (the occupancy of hb pairs over all microstates), if needed or --reload is true,
 then outputs the data and correlation heatmaps.
@@ -311,12 +323,12 @@ compute each group correlation. Always true without filtering with pairs of inte
     sub1.set_defaults(func=process_pairs)
 
     sub2 = subparsers.add_parser("states",
-    usage="""ms_hbnets states -ph 5                # get hb states at a non-default pH (--reload needed if outputs exist)
-       ms_hbnets states -n-states 50000      # change the target number of output hb microstates (--reload needed if outputs exist)
-       ms_hbnets states -figsize-data ,7     # get hb states and change the data heatmap height
-       ms_hbnets states -figsize-data ,,cm   # change the unit of the data heatmap to cm
-       ms_hbnets states -data-cbar-min 0.3   # change the cbar lowest bound of the data heatmap
-       ms_hbnets states -data-map-color Reds # change the color of the data heatmap""",
+    usage="""ms_hbnets states -ph 5                  # get hb states at a non-default pH (--reload needed if outputs exist)
+       ms_hbnets states -n-states 50000        # change the target number of output hb microstates (--reload needed if outputs exist)
+       ms_hbnets states -figsize-data ,7       # get hb states and change the data heatmap height
+       ms_hbnets states -figsize-data ,,cm     # change the unit of the data heatmap to cm
+       ms_hbnets states -data-cbar-min 0.3     # change the cbar lowest bound of the data heatmap
+       ms_hbnets states -data-map-color Greens # change the color of the data heatmap""",
         description="""
 Gathers the H-bond microstates data if needed or --reload is true, then outputs the data and correlation heatmaps.
 WARNING: The states correlation is NOT currently split into res-res, res-bk subsets: without filtering,
@@ -335,8 +347,8 @@ to find out if it is adequate (`head -n1 hb_states_pH*.csv`); Default: %(default
                       type=to_figsize,
                       default=DEFAULT_FIGSIZE,
                       help="""
-Data as figure; Size of the states pairs data heatmap; 
-The default size is ok for ~30 residues; Default: %(default)s"""
+Size of the states pairs data heatmap; Default: %(default)s
+The default size is ok for ~30 residues"""
     )
     sub2.add_argument("-figsize-data-bk",
                       type=to_figsize,
@@ -357,7 +369,7 @@ Size of the states pairs correlation heatmap; Default: %(default)s"""
                       help="""
 If --split-BK is used or no filtering pairs are provided, the data is divided into res-res and
 res-bk pairs. Size of the states res-bk pairs correlation heatmap; Default: %(default)s"""
-    )  
+    )
     sub2.add_argument("-figsize-donor-corr",
                       type=to_figsize,
                       default=DEFAULT_FIGSIZE,
@@ -389,8 +401,8 @@ Size of the states Acceptors correlation heatmap; Default: %(default)s"""
     sub2.add_argument("--split-BK",
                       action="store_true",
                       default=False,
-                      help="""To divide the pairs into res-res and res-bk groups and 
-compute each group correlation. Always true without filtering with pairs of interest; Default: %(default)s""",
+                      help="""Divide the pairs into res-res and res-bk groups and 
+compute each group correlation. Always true if no pairs of interest given; Default: %(default)s""",
     )
     sub2.add_argument("--do-states-da-corr",
                       action="store_true",
