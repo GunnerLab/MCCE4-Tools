@@ -916,7 +916,10 @@ class HbCorrelator:
         self.get_dims_dicts(pairs_df)
         self.dat_fps = self.mmap_fps.copy()
 
-        tmp_dir = TemporaryDirectory(delete=False)
+        # No delete kwarg: it only exists on Python 3.12+, and this
+        # project pins requires-python == 3.10 (issue #200). The temp dir is
+        # removed by the explicit, idempotent tmp_dir.cleanup() below.
+        tmp_dir = TemporaryDirectory()
         # set dat filenames to use tmp dir:
         for key in self.dat_fps:
             dp = Path(tmp_dir.name).joinpath(self.dat_fps[key])
@@ -927,7 +930,7 @@ class HbCorrelator:
         if not self.ok:
             tmp_dir.cleanup()
             return
-        
+
         centered_specs = self.get_centered_specs()
         self.save_centered_matrices(centered_specs)
         self.get_states_matrices_correlation(centered_specs["centered_fp"],
@@ -952,7 +955,10 @@ class HbCorrelator:
         self.get_dims_dicts(pairs_df)
         self.dat_fps = self.mmap_fps.copy()
 
-        tmp_dir = TemporaryDirectory(delete=False)
+        # No delete kwarg: it only exists on Python 3.12+, and this
+        # project pins requires-python == 3.10 (issue #200). The temp dir is
+        # removed by the explicit, idempotent tmp_dir.cleanup() below.
+        tmp_dir = TemporaryDirectory()
         # set dat filenames to use tmp dir:
         for key in self.dat_fps:
             dp = Path(tmp_dir.name).joinpath(self.dat_fps[key])
