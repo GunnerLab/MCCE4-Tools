@@ -210,8 +210,7 @@ def heatmap_from_df(df: pd.DataFrame,
                  )
 
     ax.set_title(title, fontdict={'weight':'bold', "size":10})
-    # if ticklabels_fontsize is not None and map_kind=="corr":
-    #     ax.tick_params(axis='both', labelsize=8)
+
     if fig_save_fp is not None:
         plt.savefig(fig_save_fp)
         logging.info(f"  Figure: {fig_save_fp!s}; Size: {figsize}")
