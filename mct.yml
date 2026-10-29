@@ -1,0 +1,21 @@
+# Oct 2026: bumped python version to >=3.12
+name: mct
+channels:
+  - conda-forge
+  - defaults
+
+dependencies:
+  - python>=3.12
+  - pip
+  - mdanalysis
+  - numpy
+  - numba
+  - parmed
+  - setuptools>=64
+  - pip:
+    - scipy
+    - matplotlib
+    - pandas
+    - networkx
+    - requests
+    - seaborn
