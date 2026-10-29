@@ -1,6 +1,9 @@
-# MCCE4-Tools (alpha)
+# MCCE4-Tools (beta)
   * Tools for processing MCCE4 simulation outputs.
-  * A concise description is provided in the file `tools.info` in `MCCE4-Tools/mcce4_tools`. If you are reading this document online, you can view this file [here](https://raw.githubusercontent.com/GunnerLab/MCCE4-Tools/refs/heads/main/mcce4_tools/tools.info).
+  * A concise description is provided in the file `tools.info` in `MCCE4-Tools/mcce4_tools`  [TODO: update file]. If you are reading this document online, you can view this file [here](https://raw.githubusercontent.com/GunnerLab/MCCE4-Tools/refs/heads/main/mcce4_tools/tools.info).
+
+# Current Users: Update required (as of 10-29-2026):
+  * MCCE4-Tools now uses python >=3.12. Create a new dedicated environment by following Step 5. in the Installation Steps below.
 
 ## Installation Steps:
   1. Navigate to a directory of your choice (referred to as 'clone_dir'):
@@ -22,24 +25,28 @@
   ```
 
   5. To _run_ the tools, either:
-    - Activate an appropriate environment associated with __python 3.10__ (and that includes the packages in the environment file, `MCCE4-Tools/mct4.yml`).
-    - Alternatively, you can create one with the provided `MCCE4-Tools/mct4.yml` file:
-      * Choose one of these two options to create the environment:
-        1. Option 1: Create a NEW environment named 'mc4' if you do not have one already. To find out, run the command: `conda env list`. You do not have an 'mc4' environment if it's not listed in its output:
+    - Activate an appropriate environment associated with __python 3.12__ (and that includes the packages in the environment file, `MCCE4-Tools/mct.yml`).
+    - Alternatively, you can create one with the provided `MCCE4-Tools/mct.yml` file:
+      * Create a NEW environment named 'mct' if you do not have one already. To find out, run the command: `conda env list`. You do not have an 'mct' environment if it's not listed in its output.
         ```bash
-         conda env create -f mct4.yml
+        # optional: remove existing 'mct' environment first:
+        # conda env remove -n mct
+        
+        conda env create -f mct.yml
+
+        # OR change the name to keep an existing 'mct' environment:
+        conda env create -n myenv -f mct.yml
         ```
-        2. ~~Option 2~~: REMOVED. DO NOT update your existing 'mc4' environment (which you have if you have installed MCCE4-Alpha) with the mct4.yml file: The python version will soon be unpinned to call for Python>=3.11, which MCCE4-Alpha is not setup to use at the moment, the two environments will use different python versions.
 
   6. Test a tool
-    * Activate your environment, e.g. `conda activate mct4`
+    * Activate your environment, e.g. `conda activate mct`
     * Type `getpdb` and press Enter: the cli usage should display
 
   * __NOTES__
-     - Although pymol is necessary for certain tools, it is not included in `mc4.yml` due to licensing; installation details for PyMOL 3.1 (Version 3.1.6.1) is [here](https://www.pymol.org/)
+     - Although pymol is necessary for certain tools, it is not included in `mct.yml` due to licensing; installation details for PyMOL is [here](https://www.pymol.org/)
 
   7. Setup to access the codebase programmatically:
-    * Activate your environment, e.g. `conda activate mc4`
+    * Activate your environment, e.g. `conda activate mct`
     * Go into the clone directory (`cd MCCE4-Tools`)
     * Install the clone codebase as an editable package in your activated environment:
     ```bash
@@ -52,8 +59,8 @@
      print(dir(constants))
 
      # OR
-     import mcce4_tools.mcce4 as mct
-     dir(mct.constants)
+     import mcce4_tools.mcce4 as mctools
+     dir(mctools.constants)
     ```
 
 ## Keeping your toolbase up-to-date:
