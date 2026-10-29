@@ -16,11 +16,12 @@ from pathlib import Path
 from re import split as re_split, findall
 from tempfile import TemporaryDirectory
 from time import time
-from typing import Union
+from typing import Tuple, Union
 
 import numpy as np
 import pandas as pd
 
+from mcce4.constants import res3_to_res1
 from mcce4.io_utils import show_elapsed_time
 from mcce4.ms_hbnets.msout_hb import get_resid, group_confids_into_resids, num_prec
 from mcce4.ms_hbnets.msout_hb import MIN_OCC, STATES_PAIRS_COMMENT
@@ -31,6 +32,7 @@ from mcce4.ms_hbnets.plotting import heatmap_from_df
 
 DTYPE = "float32"
 HB_KINDS = ["pairs", "states"]  # matches ms_hbnets subcommands
+VALID_AA1_CODES = [val for val in set(res3_to_res1.values()) if len(val) == 1]
 
 
 def get_resnum(resid: str):
@@ -65,6 +67,40 @@ def format_num(num):
     return num
 
 
+def get_res_of_interest(res_of_interest: str) -> Tuple[str]:
+    """Loads user's res of interest from input string.
+    Example: Given res_of_interest = "DEH+BK", returns:
+    (D_, DBK_, E_, EBK_, H_, HBK_)
+    """
+    if not res_of_interest:
+        return []
+
+    tpl_out = []
+    # validate:
+    res_oi = ""
+    # check if bk needed:
+    if res_of_interest[-3] == "+":
+        with_bk = True
+        res_oi = res_of_interest[:-3].upper()
+    else:
+        res_oi = res_of_interest.upper()
+        with_bk = False
+
+    for res in res_oi:
+        if res not in VALID_AA1_CODES:
+            logging.error(f"{res!r} is not a valid 1-letter residue code. Not filtering.")
+            tpl_out = []
+            break
+
+        tpl_out.append(f"{res}_")
+        if with_bk:
+            tpl_out.append(f"{res}BK_")
+    if tpl_out:
+        logging.info(f"Will filter for these residues of interest: {tuple(tpl_out)}")
+
+    return tuple(tpl_out)
+
+
 def get_pairs_of_interest_df(pairs_of_interest_fp: Union[str, Path]) -> pd.DataFrame:
     """Loads user's pairs of interest from input file.
     Assumed format example per line: R_A112,N_A106
@@ -87,7 +123,7 @@ def maybe_convert(df: pd.DataFrame) -> bool:
     hb_states_pairs_*.csv data.
     If resids of a pair with flag 'with_bk'=True do no contain 'BK_',
     returns True to indicate that the confid to resid naming & grouping
-    is to be redone to obtain the new parent file is to beto updated format.
+    is to be redone to obtain the updated format.
     """
     mskp = df["res_d"].str.contains("BK_") | df["res_a"].str.contains("BK_")
     msk = df["with_bk"].eq(True) & ~mskp
@@ -98,6 +134,7 @@ def maybe_convert(df: pd.DataFrame) -> bool:
 class HbCorrelator:
     def __init__(self, hbms: MSout_hb,
                  hb_kind: str = None,
+                 res_of_interest: str = None,
                  pairs_of_interest_fp: Union[str, Path] = None,
                  min_occ: float = MIN_OCC,
                  include_states_da_corr: bool = False,
@@ -139,14 +176,23 @@ class HbCorrelator:
         self.min_occ_print = f"min occ >= {self.min_occ:.{self.prec}f}"
         logging.info(f"Heatmaps min_occ: {self.min_occ_print}")
 
+        self.split_bk = True  # always split unless filtered ot split_BK is True
+        self.res_oi: tuple = None
+        if res_of_interest is not None:
+            self.res_oi = get_res_of_interest(res_of_interest)
+            if not self.res_oi:
+                self.ok = False
+                return
+            self.split_bk = False or split_BK
+
         self.poi_df: pd.DataFrame = None
-        self.split_bk = True
         if pairs_of_interest_fp is not None:
             self.poi_df = get_pairs_of_interest_df(pairs_of_interest_fp)
             if self.poi_df is None:
                 self.ok = False
                 return
-            self.split_bk = False or split_BK
+            self.split_bk = self.split_bk or split_BK
+
         if self.split_bk:
             logging.info("The hb pairs will be divided into res-res and res-BK pairs to reduce the heatmap size.")
   
@@ -274,6 +320,24 @@ class HbCorrelator:
 
         return df
 
+    def _filter_res_of_interest(self, resdf: pd.DataFrame) -> pd.DataFrame:
+        if not self.ok:
+            return
+
+        if self.res_oi is not None:
+            try:
+                msk = resdf["res_d"].str.startswith(self.res_oi) | resdf["res_a"].str.startswith(self.res_oi)
+                if msk.any():
+                    resdf = resdf.loc[msk]
+                    logging.info(f"Residue-filtered pairs count: {resdf.shape[0]}")
+                    return resdf
+            except Exception as e:
+                logging.error(f"Could not filter the dataframe for residues of interest. Error:\n{e}")
+                self.ok = False
+                return
+        else:
+            return resdf
+
     def _filter_pairs_of_interest(self, resdf: pd.DataFrame) -> pd.DataFrame:
         if not self.ok:
             return
@@ -295,6 +359,8 @@ class HbCorrelator:
                 logging.error(f"Could not filter the dataframe for pairs of interest. Error:\n{e}")
                 self.ok = False
                 return None
+        else:
+            return resdf
 
     def get_inputfile_pairs_data(self) -> pd.DataFrame:
         """
@@ -310,11 +376,20 @@ class HbCorrelator:
 
         resdf = self._load_csv(self.input_fp2)
         # maybe filter:
+        if self.res_oi is not None:
+            df = self._filter_res_of_interest(resdf)
+            if df is not None:
+                resdf = df
+            else:
+                self.ok = False
+                return
+        
         if self.poi_df is not None:
             df = self._filter_pairs_of_interest(resdf)
             if df is not None:
                 resdf = df
             else:
+                self.ok = False
                 return
 
         # apply min occ mask:
@@ -352,7 +427,7 @@ class HbCorrelator:
         if not self.split_bk:  # => self.pairs_df is filtered
             matrix_df = self.pairs_df.pivot(index="Donor", columns="Acceptor", values="occ").fillna(0)
             # data heatmap:
-            title = f"H-bond Donor - Acceptor pairs data\n({self.input_fp2.name})"
+            title = f"H-bond Donor - Acceptor pairs data\n{self.input_fp2.name}"
             png_fp = self.input_fp2.with_name(f"{self.input_fp2.stem}_filtered.png")
             heatmap_from_df(matrix_df,
                             fig_save_fp=png_fp,
@@ -416,10 +491,6 @@ class HbCorrelator:
             return
 
         process_start = time()
-        self.pairs_df = self.get_inputfile_pairs_data()
-        if not self.ok:
-            return
-
         # splitting done by data viz function:
         split_dfs = self.get_data_heatmaps()
         if split_dfs is not None:
@@ -843,7 +914,7 @@ class HbCorrelator:
         info = info.split("(")[0]
         info = info + f"(returned={format_num(float(num1))}/space={format_num(float(num2))})"
 
-        return f"({self.n_matrices:,} occupied states, {info})"
+        return f"{self.n_matrices:,} occupied, {info}"
 
     def  get_fig_specs(self) -> dict:
         """
@@ -1001,10 +1072,6 @@ class HbCorrelator:
             return
 
         process_start = time()
-        self.pairs_df = self.get_inputfile_pairs_data()
-        if not self.ok:
-            return
-
         # data viz: up to 2 heatmaps, also does splitting
         split_dfs = self.get_data_heatmaps()
         if split_dfs is not None:  # => self.split_bk == True

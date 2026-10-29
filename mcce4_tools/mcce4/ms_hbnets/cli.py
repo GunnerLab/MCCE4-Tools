@@ -83,6 +83,7 @@ def process_pairs(args: Union[dict, Namespace]):
     figs_args = {k: v for k, v in vars(args).items() if k in PLOTTING_ARGS}
     HbCorr = HbCorrelator(mshb,
                           hb_kind="pairs",
+                          res_of_interest=args.res_of_interest,
                           pairs_of_interest_fp=args.pairs_of_interest_csv,
                           min_occ=float(args.min_occ),
                           split_BK=args.split_BK,
@@ -127,6 +128,7 @@ def process_states(args: Union[dict, Namespace]):
     figs_args = {k: v for k, v in vars(args).items() if k in PLOTTING_ARGS}
     HbCorr = HbCorrelator(mshb,
                           hb_kind="states",
+                          res_of_interest=args.res_of_interest,
                           pairs_of_interest_fp=args.pairs_of_interest_csv,
                           min_occ=float(args.min_occ),
                           include_states_da_corr=args.do_states_da_corr,
@@ -222,17 +224,24 @@ def cli_parser():
                     default=MIN_OCC,
                     help="To return data with occ >= min-occ; Default: " + printed_occ
                     )
+    cp.add_argument("-res-of-interest",
+                    default=None,
+                    help="""String of case-insensitive one-letter residue codes. Takes precedence over -pairs-of-interest-csv
+if given; Default: %(default)s
+Examples:
+ -res-of-interest DEHK     # no res bk
+ -res-of-interest DEHK+BK  # string ends with '+BK'; keep res bk
+"""
+)
     cp.add_argument("-pairs-of-interest-csv",
                     default=None,
-                    help="""
-File listing comma-separated H-bonding pairs in resid format that will 
+                    help="""File listing comma-separated H-bonding pairs in resid format that will 
 filter the main data file prior to producing the heatmaps; Default: %(default)s
 Format example: 
   R_A112,N_A106
   SBK_A50,D_A48
-  ...
 """
-                    )
+)
     cp.add_argument("-data-cbar-min",
                     type=float,
                     default=0.0,
@@ -264,11 +273,13 @@ Format example:
         dest="subparser_name",
     )
     sub1 = subparsers.add_parser("pairs",
-        usage="""ms_hbnets pairs -ph 5                  # get hb pairs at a non-default pH (--reload needed if outputs exist)
-       ms_hbnets pairs -figsize-data 8,8      # change the data heatmap size;
-       ms_hbnets pairs -figsize-data ,,cm     # change the unit of the data heatmap to cm
-       ms_hbnets pairs -data-cbar-min 0.3     # change the cbar lowest bound of the data heatmap
-       ms_hbnets pairs -data-map-color Greens # change the color of the data heatmap""",
+        usage="""ms_hbnets pairs -ph 5                     # get hb pairs at a non-default pH (--reload needed if outputs exist)
+       ms_hbnets pairs -figsize-data 8,6         # change the data heatmap size, w=8, h=6;
+       ms_hbnets pairs -figsize-data ,,cm        # change the unit of the data heatmap to cm
+       ms_hbnets pairs -data-cbar-min 0.3        # change the cbar lowest bound of the data heatmap
+       ms_hbnets pairs -data-map-color Greens    # change the color of the data heatmap
+       ms_hbnets pairs -res-of-interest DEHK+BK  # filter for these residues (keep BK)
+       """,
         description="""
 Gathers the H-bond pairs data (the occupancy of hb pairs over all microstates), if needed or --reload is true,
 then outputs the data and correlation heatmaps.
@@ -279,15 +290,13 @@ then outputs the data and correlation heatmaps.
     sub1.add_argument("-figsize-data",
                       type=to_figsize,
                       default=DEFAULT_FIGSIZE,
-                      help="""
-Data as figure; Size of the pairs data heatmap; 
+                      help="""Data as figure; Size of the pairs data heatmap; 
 The default size is ok for ~30 residues; Default: %(default)s"""
     )
     sub1.add_argument("-figsize-data-bk",
                       type=to_figsize,
                       default=DEFAULT_FIGSIZE,
-                      help="""
-If --split-BK is used or no filtering pairs are provided, the data is divided into res-res and
+                      help="""If --split-BK is used or no filtering pairs are provided, the data is divided into res-res and
 res-bk pairs. Size of the res-bk pairs data heatmap; Default: %(default)s"""
     )
     sub1.add_argument("-figsize-donor-corr",
@@ -298,8 +307,7 @@ res-bk pairs. Size of the res-bk pairs data heatmap; Default: %(default)s"""
     sub1.add_argument("-figsize-donor-corr-bk",
                       type=to_figsize,
                       default=DEFAULT_FIGSIZE,
-                      help="""
-If --split-BK is used or no filtering pairs are provided, the data is divided into res-res and
+                      help="""If --split-BK is used or no filtering pairs are provided, the data is divided into res-res and
 res-bk pairs. Size of the res-bk Donors correlation heatmap; Default: %(default)s"""
     )
     sub1.add_argument("-figsize-acceptor-corr",
@@ -310,8 +318,7 @@ res-bk pairs. Size of the res-bk Donors correlation heatmap; Default: %(default)
     sub1.add_argument("-figsize-acceptor-corr-bk",
                       type=to_figsize,
                       default=DEFAULT_FIGSIZE,
-                      help="""
-If --split-BK is used or no filtering pairs are provided, the data is divided into res-res and
+                      help="""If --split-BK is used or no filtering pairs are provided, the data is divided into res-res and
 res-bk pairs. Size of the res-bk Acceptors correlation heatmap; Default: %(default)s"""
     )
     sub1.add_argument("--split-BK",
@@ -323,12 +330,13 @@ compute each group correlation. Always true without filtering with pairs of inte
     sub1.set_defaults(func=process_pairs)
 
     sub2 = subparsers.add_parser("states",
-    usage="""ms_hbnets states -ph 5                  # get hb states at a non-default pH (--reload needed if outputs exist)
-       ms_hbnets states -n-states 50000        # change the target number of output hb microstates (--reload needed if outputs exist)
-       ms_hbnets states -figsize-data ,7       # get hb states and change the data heatmap height
-       ms_hbnets states -figsize-data ,,cm     # change the unit of the data heatmap to cm
-       ms_hbnets states -data-cbar-min 0.3     # change the cbar lowest bound of the data heatmap
-       ms_hbnets states -data-map-color Greens # change the color of the data heatmap""",
+    usage="""ms_hbnets states -ph 5                     # get hb states at a non-default pH (--reload needed if outputs exist)
+       ms_hbnets states -n-states 50000           # change the target number of output hb microstates (--reload needed if outputs exist)
+       ms_hbnets states -figsize-data ,8          # change the data heatmap height, w=7, h=8
+       ms_hbnets states -figsize-data ,,cm        # change the unit of the data heatmap to cm
+       ms_hbnets states -data-cbar-min 0.3        # change the cbar lowest bound of the data heatmap
+       ms_hbnets states -data-map-color Greens    # change the color of the data heatmap
+       ms_hbnets states -res-of-interest DEHK+BK  # filter for these residues (keep BK)""",
         description="""
 Gathers the H-bond microstates data if needed or --reload is true, then outputs the data and correlation heatmaps.
 WARNING: The states correlation is NOT currently split into res-res, res-bk subsets: without filtering,
@@ -339,63 +347,54 @@ WARNING: The states correlation is NOT currently split into res-res, res-bk subs
     sub2.add_argument("-n-states",
                       default=N_STATES,
                       type=int,
-                      help="""
-Number of H-bonding states to return, possibly. Consult the header row of hb_states_pH*.csv
+                      help="""Number of H-bonding states to return, possibly. Consult the header row of hb_states_pH*.csv
 to find out if it is adequate (`head -n1 hb_states_pH*.csv`); Default: %(default)s"""
     )
     sub2.add_argument("-figsize-data",
                       type=to_figsize,
                       default=DEFAULT_FIGSIZE,
-                      help="""
-Size of the states pairs data heatmap; Default: %(default)s
+                      help="""Size of the states pairs data heatmap; Default: %(default)s
 The default size is ok for ~30 residues"""
     )
     sub2.add_argument("-figsize-data-bk",
                       type=to_figsize,
                       default=DEFAULT_FIGSIZE,
-                      help="""
-If --split-BK is used or no filtering pairs are provided, the data is divided into res-res and
+                      help="""If --split-BK is used or no filtering pairs are provided, the data is divided into res-res and
 res-bk pairs. Size of the states res-bk pairs data heatmap; Default: %(default)s"""
     )
     sub2.add_argument("-figsize-corr",
                       type=to_figsize,
                       default=DEFAULT_FIGSIZE,
-                      help="""
-Size of the states pairs correlation heatmap; Default: %(default)s"""
+                      help="""Size of the states pairs correlation heatmap; Default: %(default)s"""
     )
     sub2.add_argument("-figsize-corr-bk",
                       type=to_figsize,
                       default=DEFAULT_FIGSIZE,
-                      help="""
-If --split-BK is used or no filtering pairs are provided, the data is divided into res-res and
+                      help="""If --split-BK is used or no filtering pairs are provided, the data is divided into res-res and
 res-bk pairs. Size of the states res-bk pairs correlation heatmap; Default: %(default)s"""
     )
     sub2.add_argument("-figsize-donor-corr",
                       type=to_figsize,
                       default=DEFAULT_FIGSIZE,
-                      help="""
-If --do-states-da-corr is used, the state Donors and Acceptors correlation is included.
+                      help="""If --do-states-da-corr is used, the state Donors and Acceptors correlation is included.
 Size of the states Donors correlation heatmap; Default: %(default)s"""
     )
     sub2.add_argument("-figsize-donor-corr_bk",
                       type=to_figsize,
                       default=DEFAULT_FIGSIZE,
-                      help="""
-If --do-states-da-corr and --split-BK are used, the state Donors and Acceptors correlation is included.
+                      help="""If --do-states-da-corr and --split-BK are used, the state Donors and Acceptors correlation is included.
 Size of the states Donors correlation heatmap; Default: %(default)s"""
     )
     sub2.add_argument("-figsize-acceptor-corr",
                       type=to_figsize,
                       default=DEFAULT_FIGSIZE,
-                      help="""
-If --do-states-da-corr is used, the state Donors and Acceptors correlation is included.
+                      help="""If --do-states-da-corr is used, the state Donors and Acceptors correlation is included.
 Size of the states Acceptors correlation heatmap; Default: %(default)s"""
     )
     sub2.add_argument("-figsize-acceptor-corr-bk",
                       type=to_figsize,
                       default=DEFAULT_FIGSIZE,
-                      help="""
-If --do-states-da-corr and --split-BK are used, the state Donors and Acceptors correlation is included.
+                      help="""If --do-states-da-corr and --split-BK are used, the state Donors and Acceptors correlation is included.
 Size of the states Acceptors correlation heatmap; Default: %(default)s"""
     )
     sub2.add_argument("--split-BK",
