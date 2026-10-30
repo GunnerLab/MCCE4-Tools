@@ -33,6 +33,7 @@ from mcce4.ms_hbnets.plotting import heatmap_from_df
 DTYPE = "float32"
 HB_KINDS = ["pairs", "states"]  # matches ms_hbnets subcommands
 VALID_AA1_CODES = [val for val in set(res3_to_res1.values()) if len(val) == 1]
+VALID_COFACTOR_SEPS = " .,;!?"
 
 
 def get_resnum(resid: str):
@@ -69,36 +70,44 @@ def format_num(num):
 
 def get_res_of_interest(res_of_interest: str) -> Tuple[str]:
     """Loads user's res of interest from input string.
-    Example: Given res_of_interest = "DEH+BK", returns:
-    (D_, DBK_, E_, EBK_, H_, HBK_)
+    Outputs a tuple so that it can be used with str.startswith.
+    Examples: 
+      res_of_interest = "DEH+BK"        -> (D_, DBK_, E_, EBK_, H_, HBK_)
+      res_of_interest = "DEH+|HOH 4pti" -> (D_, DBK_, E_, EBK_, H_, HBK_, w_, 4PTI_)
+      res_of_interest = "DEH|HOH;abc"   -> (D_, E_, H_, w_, ABC_)
+      res_of_interest = "|HOH,abc"      -> (w_, ABC_)
     """
     if not res_of_interest:
-        return []
+        return ()
 
-    tpl_out = []
-    # validate:
-    res_oi = ""
-    # check if bk needed:
-    if res_of_interest[-3] == "+":
-        with_bk = True
-        res_oi = res_of_interest[:-3].upper()
+    # valid_seps = rf"[{VALID_COFACTOR_SEPS}]+"
+    out = []
+    roi = res_of_interest.upper()
+    add_hets = "|" in roi
+    add_bk = "+" in roi
+    if add_bk:
+        ix = roi.index("+")
     else:
-        res_oi = res_of_interest.upper()
-        with_bk = False
+        ix = len(roi)
 
-    for res in res_oi:
-        if res not in VALID_AA1_CODES:
-            logging.error(f"{res!r} is not a valid 1-letter residue code. Not filtering.")
-            tpl_out = []
-            break
+    if add_hets:
+        roi, het = roi.split("|")
+        if "HOH" in het:
+            het = het.replace("HOH", "w")
 
-        tpl_out.append(f"{res}_")
-        if with_bk:
-            tpl_out.append(f"{res}BK_")
-    if tpl_out:
-        logging.info(f"Will filter for these residues of interest: {tuple(tpl_out)}")
+    # validate 1-letter codes:
+    all_valid = all([res in VALID_AA1_CODES for res in roi[:ix]])
+    if not all_valid:
+        print(f"Found invalid 1-letter residue code(s) in {roi[:ix]!r}. Not filtering.")
+    else:
+        # ok to populate list
+        out.extend([f"{r}_" for r in roi[:ix]])
+        if add_bk:
+            out.extend([f"{r}BK_" for r in roi[:ix]])
+        if add_hets:
+            out.extend([f"{h}_" for h in re_split(rf"[{VALID_COFACTOR_SEPS}]+", het)])
 
-    return tuple(tpl_out)
+    return tuple(out)
 
 
 def get_pairs_of_interest_df(pairs_of_interest_fp: Union[str, Path]) -> pd.DataFrame:
@@ -374,12 +383,14 @@ class HbCorrelator:
             return
         logging.info("Getting pairs data...")
 
+        save_filtered = False
         resdf = self._load_csv(self.input_fp2)
         # maybe filter:
         if self.res_oi is not None:
             df = self._filter_res_of_interest(resdf)
             if df is not None:
                 resdf = df
+                save_filtered = True
             else:
                 self.ok = False
                 return
@@ -388,6 +399,7 @@ class HbCorrelator:
             df = self._filter_pairs_of_interest(resdf)
             if df is not None:
                 resdf = df
+                save_filtered = True
             else:
                 self.ok = False
                 return
@@ -409,6 +421,9 @@ class HbCorrelator:
         resdf = resdf.drop(columns=["di","ai"])
         resdf = resdf.rename(columns={"res_d":"Donor", "res_a":"Acceptor"})
 
+        if save_filtered:
+            resdf.to_csv(self.input_fp2.with_name(f"{self.input_fp2.stem}_filtered.csv"),
+                         index=False)
         return resdf
 
     def get_data_heatmaps(self, kind: str="pairs") -> Union[None, tuple]:
