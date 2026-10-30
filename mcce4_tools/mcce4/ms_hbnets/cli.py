@@ -28,7 +28,7 @@ from typing import Union
 import matplotlib.pyplot as plt
 
 from mcce4.io_utils import N_STATES
-from mcce4.ms_hbnets.correlator import HbCorrelator
+from mcce4.ms_hbnets.correlator import HbCorrelator, VALID_COFACTOR_SEPS
 from mcce4.ms_hbnets.msout_hb import do_checks
 from mcce4.ms_hbnets.msout_hb import is_int
 from mcce4.ms_hbnets.msout_hb import MIN_OCC, printed_occ
@@ -187,11 +187,24 @@ Data heatmaps:
 Correlation heatmaps:
   - The hb pairs Donors and the Acceptors correlation heatmaps
   - The microstates pairs heatmaps
+Also saves the filtered pairs file to <file>_filtered.csv.
 """ + f"""
 The default heatmaps size is {DEFAULT_FIGSIZE} with implied unit 'in'.
-Requires the structural H-bonds data output by the `detect_hbonds` tool.
+REQUIRES: The structural H-bonds data output by the `detect_hbonds` tool.
 """
-
+ 
+roi_help = f"""String of case-insensitive one-letter residue codes (minimal case); Default: None
+Takes precedence over -pairs-of-interest-csv if given. String must be quoted when listing cofactors.
+Extended string: AA+ or "AA|XYZ<sep>abc" where <sep> is one of these characters: {VALID_COFACTOR_SEPS!r}
+Examples:
+ -res-of-interest EHK             # no res bk, no cofactors
+ -res-of-interest EHK+BK          # string contains '+' => keep res bk; Note: + is suffcient
+ -res-of-interest "EHK+|HOH 4pti" # keep res bk, water and 4PTI cofactor
+ -res-of-interest "EHK|HOH;abc"   # no res bk, water and ABC cofactor
+ -res-of-interest "|HOH,abc"      # no res, water and ABC cofactor
+Note:
+  When filtering with residues, it is very likely that -figsize-data must be reduced, ex: -figsize-data 5,5
+"""
 
 def cli_parser():
     p = ArgumentParser(prog=APP,
@@ -226,12 +239,7 @@ def cli_parser():
                     )
     cp.add_argument("-res-of-interest",
                     default=None,
-                    help="""String of case-insensitive one-letter residue codes. Takes precedence over -pairs-of-interest-csv
-if given; Default: %(default)s
-Examples:
- -res-of-interest DEHK     # no res bk
- -res-of-interest DEHK+BK  # string ends with '+BK'; keep res bk
-"""
+                    help=roi_help,
 )
     cp.add_argument("-pairs-of-interest-csv",
                     default=None,
