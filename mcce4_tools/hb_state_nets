@@ -17,8 +17,8 @@ DEFAULT_RESI_LIST = 'resi_list.txt'
 DEFAULT_RESI_START_STOP = 'resi_list_start-stop.txt'
 
 DESCRIPTION_HELP = """\
-Find H-bond networks across unique residue microstates. Builds an H-bond
-graph per microstate, then traces paths from entry to exit residues
+Find H-bond networks across unique residue microstates. Builds a directed
+donor-to-acceptor H-bond graph per microstate, then traces paths from entry to exit residues
 (-resi_start_stop) or paths through residues of interest (-resi_list),
 ranked by Arrhenius rate and energy.
 
@@ -26,6 +26,10 @@ Examples (set CSV=hb_states_pH7.00eH0.00.csv):
   hb_state_nets $CSV -resi_start_stop         # uses resi_list_start-stop.txt
   hb_state_nets $CSV -resi_list               # uses resi_list.txt
   hb_state_nets $CSV -resi_start_stop paths.txt -net_length 2 N
+  hb_state_nets $CSV --start THRP1155 --end GLUP1158
+  hb_state_nets $CSV --start THRP1155       # downstream paths
+  hb_state_nets $CSV --end GLUP1158         # upstream paths
+  hb_state_nets $CSV --unrestricted         # all source-to-sink paths
 """
 
 RESIDUE_FORMAT_HELP = f"""\
@@ -75,14 +79,31 @@ parser.add_argument('-resi_start_stop', metavar='FILE',
                          'any entry residue to any exit residue. FILE is optional: '
                          'give your own path, or omit it to use the default '
                          f'{DEFAULT_RESI_START_STOP}')
-parser.add_argument('-net_length', nargs=2, default=['3', '10'],
+parser.add_argument('-net_length', nargs=2, default=['4', '10'],
                     metavar=('MIN', 'MAX'),
                     help='Minimum and maximum network path length in nodes '
-                         '(default: 3 10). Set MAX to N for unlimited.')
+                    '(default: 4 10). Set MAX to N for unlimited.')
 parser.add_argument('-topnets', type=int, default=10, metavar='N',
                     help='Number of top networks to display (default: 10)')
 parser.add_argument('--include_bk', action='store_true',
-                    help='Include backbone (BK) H-bond connections (excluded by default)')
+                    help='Deprecated alias for --backbone-mode include_all')
+parser.add_argument('--backbone-mode',
+                    choices=('exclude_bk_bk', 'exclude_all', 'include_all'),
+                    default='exclude_bk_bk',
+                    help='Backbone filtering (default: exclude_bk_bk)')
+parser.add_argument('--start', metavar='RESIDUE',
+                    help='Optional directed-path start residue')
+parser.add_argument('--end', metavar='RESIDUE',
+                    help='Optional directed-path end residue')
+parser.add_argument('--unrestricted', action='store_true',
+                    help='Find directed source-to-sink paths without endpoint filters')
+parser.add_argument('--no-pymol', action='store_true',
+                    help='Do not generate PyMOL scripts or sessions')
+parser.add_argument('--grotthuss-only', '--grotthus', action='store_true',
+                    dest='grotthuss_only',
+                    help='Keep only short-list Grotthuss residues '
+                         '(ASP,GLU,SER,THR,CYS,TYR,HIS,LYS), water, and all '
+                         'nonstandard ligands/cofactors; default: off')
 parser.add_argument('--confs', action='store_true',
                     help='Build networks at the conformer level instead of residue level '
                          '(only effective with raw MCCE hb_states input)')
@@ -96,8 +117,8 @@ parser.add_argument('-A', type=float, default=1e13,
                     help='Arrhenius pre-exponential factor in /sec (default: 1e13)')
 args = parser.parse_args()
 
-if not args.resi_list and not args.resi_start_stop:
-    parser.error('at least one of -resi_list or -resi_start_stop is required')
+if not (args.resi_list or args.resi_start_stop or args.start or args.end or args.unrestricted):
+    parser.error('select -resi_list, -resi_start_stop, --start/--end, or --unrestricted')
 
 for flag, path in (('-resi_list', args.resi_list),
                    ('-resi_start_stop', args.resi_start_stop)):
@@ -110,6 +131,16 @@ args.net_length[1] = None if args.net_length[1].upper() == 'N' else int(args.net
 RE_PAIRS = re.compile(r'\(([^,]+),([^)]+)\)')
 RE_CONFORMER_NUM = re.compile(r'_\d+')
 RE_RESIDUE_CORE = re.compile(r'([A-Z]{3}).*?([A-Z]\d{4})')
+GROTTHUSS_RESIDUES = {'ASP', 'GLU', 'SER', 'THR', 'CYS', 'TYR', 'HIS', 'LYS',
+                      'HOH', 'WAT'}
+STANDARD_AMINO_ACIDS = {'ALA', 'ARG', 'ASN', 'ASP', 'CYS', 'GLN', 'GLU', 'GLY',
+                        'HIS', 'ILE', 'LEU', 'LYS', 'MET', 'PHE', 'PRO', 'SER',
+                        'THR', 'TRP', 'TYR', 'VAL'}
+
+
+def is_grotthuss_node(name):
+    resname = name[:3].upper()
+    return resname in GROTTHUSS_RESIDUES or resname not in STANDARD_AMINO_ACIDS
 
 
 def is_backbone(name):
@@ -123,22 +154,35 @@ def normalize_residue(name):
     return m.group(1) + m.group(2) if m else name
 
 
-def normalize_state(state_id, skip_bk=False, keep_confs=False):
+def keep_backbone_pair(a, b, mode):
+    a_bk, b_bk = is_backbone(a), is_backbone(b)
+    if mode == 'exclude_all':
+        return not (a_bk or b_bk)
+    if mode == 'exclude_bk_bk':
+        return not (a_bk and b_bk)
+    return True
+
+
+def normalize_state(state_id, backbone_mode='exclude_bk_bk', keep_confs=False,
+                    grotthuss_only=False):
     pairs = set()
     for m in RE_PAIRS.finditer(state_id):
         a_raw, b_raw = m.group(1).strip(), m.group(2).strip()
-        if skip_bk and (is_backbone(a_raw) or is_backbone(b_raw)):
+        if not keep_backbone_pair(a_raw, b_raw, backbone_mode):
+            continue
+        if grotthuss_only and (not is_grotthuss_node(a_raw) or
+                               not is_grotthuss_node(b_raw)):
             continue
         if keep_confs:
-            a, b = sorted([a_raw, b_raw])
+            a, b = a_raw, b_raw
         else:
-            a, b = sorted([normalize_residue(a_raw), normalize_residue(b_raw)])
+            a, b = normalize_residue(a_raw), normalize_residue(b_raw)
         pairs.add((a, b))
     return ','.join(f'({a},{b})' for a, b in sorted(pairs))
 
 
 def parse_state_graph(state_str):
-    G = nx.Graph()
+    G = nx.DiGraph()
     for m in RE_PAIRS.finditer(state_str):
         G.add_edge(m.group(1).strip(), m.group(2).strip())
     return G
@@ -363,7 +407,8 @@ def print_and_write(fh, text):
     fh.write(text + '\n')
 
 
-def read_input_csv(path, skip_bk=False, keep_confs=False):
+def read_input_csv(path, backbone_mode='exclude_bk_bk', keep_confs=False,
+                   grotthuss_only=False):
     rows = []
     with open(path) as f:
         header_line = ''
@@ -378,15 +423,16 @@ def read_input_csv(path, skip_bk=False, keep_confs=False):
 
         if is_raw:
             level = 'conformer' if keep_confs else 'residue'
-            bk_status = 'including BK' if not skip_bk else 'excluding BK'
+            bk_status = backbone_mode.replace('_', ' ')
             print(f'  Format: raw MCCE hb_states. Normalizing to {level} level ({bk_status}) ...')
             for line in f:
                 parts = line.rsplit(',', 3)
                 count = int(parts[-2])
                 rows.append({
                     'state_normalized': normalize_state(parts[0].strip('"'),
-                                                        skip_bk=skip_bk,
-                                                        keep_confs=keep_confs),
+                                                        backbone_mode=backbone_mode,
+                                                        keep_confs=keep_confs,
+                                                        grotthuss_only=grotthuss_only),
                     'count': str(count),
                 })
         else:
@@ -542,6 +588,9 @@ def write_ranked_output(top_networks, pairwise_counts, state_edge_sets,
     print(f'Cytoscape edge lists: {out_dir}/Network*_cytoscape.txt')
 
     # PyMOL sessions
+    if args.no_pymol:
+        print('\n  PyMOL generation disabled by --no-pymol')
+        return
     step2_path = Path('step2_out.pdb')
     if not step2_path.exists():
         print(f'\n  Note: step2_out.pdb not found in {Path.cwd()}, skipping PyMOL visualization')
@@ -767,7 +816,7 @@ def _process_resi_list_chunk(chunk, resi_set, net_min, cutoff, use_any):
         state_edge_sets.append((edge_set, count))
 
         found_any = False
-        for comp in nx.connected_components(G):
+        for comp in nx.weakly_connected_components(G):
             comp_resi = resi_set & comp
             if not comp_resi:
                 continue
@@ -814,8 +863,19 @@ def _process_start_stop_chunk(chunk, entry_set, exit_set, net_min, net_max):
             edge_set.add(edge)
         state_edge_sets.append((edge_set, count))
 
-        entries_in = entry_set & nodes
-        exits_in = exit_set & nodes
+        if entry_set and exit_set:
+            entries_in, exits_in = entry_set & nodes, exit_set & nodes
+        elif entry_set:
+            entries_in = entry_set & nodes
+            reachable = set().union(*(nx.descendants(G, n) for n in entries_in)) if entries_in else set()
+            exits_in = {n for n in reachable if G.out_degree(n) == 0}
+        elif exit_set:
+            exits_in = exit_set & nodes
+            upstream = set().union(*(nx.ancestors(G, n) for n in exits_in)) if exits_in else set()
+            entries_in = {n for n in upstream if G.in_degree(n) == 0}
+        else:
+            entries_in = {n for n in nodes if G.in_degree(n) == 0}
+            exits_in = {n for n in nodes if G.out_degree(n) == 0}
         if not entries_in or not exits_in:
             continue
 
@@ -844,8 +904,9 @@ def _process_start_stop_chunk(chunk, entry_set, exit_set, net_min, net_max):
 # ---------------------------------------------------------------------------
 
 print(f'Reading {args.input_csv} ...')
-skip_bk = not args.include_bk
-states = read_input_csv(args.input_csv, skip_bk=skip_bk, keep_confs=args.confs)
+backbone_mode = 'include_all' if args.include_bk else args.backbone_mode
+states = read_input_csv(args.input_csv, backbone_mode=backbone_mode,
+                        keep_confs=args.confs, grotthuss_only=args.grotthuss_only)
 total_microstates = sum(int(row['count']) for row in states)
 print(f'  Unique states: {len(states):,}')
 print(f'  Total microstates: {total_microstates:,}')
@@ -873,7 +934,7 @@ if args.resi_list:
         for rank, row in enumerate(states, 1):
             state_str = row['state_normalized']
             G = parse_state_graph(state_str)
-            for comp in nx.connected_components(G):
+            for comp in nx.weakly_connected_components(G):
                 if len(comp) < args.net_length[0]:
                     continue
                 overlap = comp & resi_set
@@ -926,15 +987,19 @@ if args.resi_list:
                         total_microstates, out_dir, 'resi_list',
                         header_lines, args)
 
-if args.resi_start_stop:
+if args.resi_start_stop or args.start or args.end or args.unrestricted:
     out_dir = Path(f'{base_name}_nets{confs_tag}')
     out_dir.mkdir(exist_ok=True)
     print(f'  Output directory: {out_dir}')
 
-    entry_set, exit_set = read_resi_start_stop(args.resi_start_stop)
+    if args.resi_start_stop:
+        entry_set, exit_set = read_resi_start_stop(args.resi_start_stop)
+    else:
+        entry_set = {normalize_residue(args.start)} if args.start else set()
+        exit_set = {normalize_residue(args.end)} if args.end else set()
     print(f'\n--- resi_start_stop mode ---')
-    print(f'Entry residues ({len(entry_set)}): {", ".join(sorted(entry_set))}')
-    print(f'Exit residues  ({len(exit_set)}): {", ".join(sorted(exit_set))}')
+    print(f'Entry residues ({len(entry_set)}): {", ".join(sorted(entry_set)) or "Any source"}')
+    print(f'Exit residues  ({len(exit_set)}): {", ".join(sorted(exit_set)) or "Any sink"}')
 
     net_min, net_max = args.net_length
     max_label = 'unlimited' if net_max is None else str(net_max)
