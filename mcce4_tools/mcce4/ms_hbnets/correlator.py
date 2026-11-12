@@ -1211,7 +1211,10 @@ class HbCorrelator:
         self.get_dims_dicts(pairs_df)
         self.dat_fps = self.mmap_fps.copy()
 
-        tmp_dir = TemporaryDirectory(delete=False)
+        # ``delete`` was added to TemporaryDirectory in Python 3.12. The
+        # supported MCCE mc4 environment uses Python 3.10; cleanup is already
+        # explicit below, so the portable constructor is sufficient.
+        tmp_dir = TemporaryDirectory()
         # set dat filenames to use tmp dir:
         for key in self.dat_fps:
             dp = Path(tmp_dir.name).joinpath(self.dat_fps[key])
@@ -1251,7 +1254,8 @@ class HbCorrelator:
         self.get_dims_dicts(pairs_df)
         self.dat_fps = self.mmap_fps.copy()
 
-        tmp_dir = TemporaryDirectory(delete=False)
+        # Keep this compatible with Python 3.10 (no ``delete`` argument).
+        tmp_dir = TemporaryDirectory()
         # set dat filenames to use tmp dir:
         for key in self.dat_fps:
             dp = Path(tmp_dir.name).joinpath(self.dat_fps[key])
